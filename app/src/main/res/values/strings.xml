@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Typecho</string>
+
+    <!-- Home -->
+    <string name="home_title">首页</string>
+    <string name="posts_empty">暂无文章</string>
+    <string name="posts_loading">加载中…</string>
+    <string name="posts_error">加载失败，下拉重试</string>
+    <string name="posts_load_more">加载更多</string>
+    <string name="posts_no_more">已加载全部</string>
+
+    <!-- Post Detail -->
+    <string name="post_detail_title">文章详情</string>
+    <string name="comments_title">评论</string>
+    <string name="comments_empty">暂无评论，来抢沙发吧</string>
+    <string name="comment_hint">写下你的评论…</string>
+    <string name="comment_submit">发表</string>
+    <string name="comment_login_required">登录后即可评论</string>
+    <string name="comment_success">评论成功</string>
+    <string name="comment_error">评论失败</string>
+    <string name="reply_to">回复 %1$s</string>
+
+    <!-- Login -->
+    <string name="login_title">登录</string>
+    <string name="login_site_url">站点地址</string>
+    <string name="login_site_url_hint">https://your-blog.com</string>
+    <string name="login_username">用户名</string>
+    <string name="login_password">密码</string>
+    <string name="login_button">登录</string>
+    <string name="login_error">登录失败，请检查站点地址和账号密码</string>
+    <string name="login_success">登录成功</string>
+    <string name="login_testing">连接中…</string>
+    <string name="login_xmlrpc_path">XML-RPC 路径</string>
+    <string name="login_xmlrpc_path_hint">/action/xmlrpc (默认)</string>
+    <string name="login_remember">记住登录状态</string>
+    <string name="logout">退出登录</string>
+    <string name="logout_confirm">确定要退出登录吗？</string>
+
+    <!-- Settings -->
+    <string name="settings_title">设置</string>
+    <string name="settings_appearance">外观</string>
+    <string name="settings_dark_mode">深色模式</string>
+    <string name="settings_dark_mode_system">跟随系统</string>
+    <string name="settings_dark_mode_light">浅色</string>
+    <string name="settings_dark_mode_dark">深色</string>
+    <string name="settings_font_size">字体大小</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_version">版本</string>
+    <string name="settings_open_source">开源许可</string>
+    <string name="settings_site_info">站点信息</string>
+    <string name="settings_test_connection">测试连接</string>
+    <string name="settings_connection_ok">连接正常</string>
+    <string name="settings_connection_fail">连接失败</string>
+
+    <!-- Admin -->
+    <string name="admin_title">管理</string>
+    <string name="admin_posts">文章管理</string>
+    <string name="admin_comments">评论管理</string>
+    <string name="admin_pages">页面管理</string>
+    <string name="admin_categories">分类管理</string>
+    <string name="admin_new_post">写文章</string>
+    <string name="admin_edit_post">编辑文章</string>
+    <string name="admin_delete_post">删除文章</string>
+    <string name="admin_delete_confirm">确定要删除「%1$s」吗？此操作不可撤销。</string>
+    <string name="admin_post_status_publish">已发布</string>
+    <string name="admin_post_status_draft">草稿</string>
+    <string name="admin_post_status_private">私密</string>
+    <string name="admin_comment_approve">通过</string>
+    <string name="admin_comment_spam">垃圾</string>
+    <string name="admin_comment_delete">删除</string>
+    <string name="admin_comment_reply">回复</string>
+    <string name="admin_save">保存</string>
+    <string name="admin_publish">发布</string>
+    <string name="admin_saved">已保存</string>
+
+    <!-- Editor -->
+    <string name="editor_title_hint">文章标题</string>
+    <string name="editor_content_hint">写下你的想法…（支持 Markdown）</string>
+    <string name="editor_excerpt_hint">摘要（可选）</string>
+    <string name="editor_tags_hint">标签，逗号分隔</string>
+    <string name="editor_category">分类</string>
+    <string name="editor_preview">预览</string>
+    <string name="editor_markdown">Markdown</string>
+    <string name="editor_discard">放弃编辑？</string>
+    <string name="editor_discard_confirm">有未保存的内容，确定放弃吗？</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">首页</string>
+    <string name="nav_diary">日记</string>
+    <string name="nav_admin">管理</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- Common -->
+    <string name="action_cancel">取消</string>
+    <string name="action_confirm">确定</string>
+    <string name="action_retry">重试</string>
+    <string name="action_delete">删除</string>
+    <string name="action_edit">编辑</string>
+    <string name="action_share">分享</string>
+    <string name="action_copy_link">复制链接</string>
+    <string name="action_open_browser">在浏览器中打开</string>
+    <string name="link_copied">链接已复制</string>
+    <string name="search_hint">搜索文章…</string>
+    <string name="no_network">无网络连接</string>
+</resources>

@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120.dp"
+    android:height="120.dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- back cover (warm brown) -->
+    <path
+        android:fillColor="#C89A7C"
+        android:pathData="M30,22 L88,22 A10,10 0 0 1 98,32 L98,98 A10,10 0 0 1 88,108 L30,108 Z" />
+    <!-- front page (cream) -->
+    <path
+        android:fillColor="#FFF8F5"
+        android:pathData="M22,16 L80,16 A10,10 0 0 1 90,26 L90,92 A10,10 0 0 1 80,102 L22,102 Z" />
+    <!-- spine accent -->
+    <path
+        android:fillColor="#8B5E3C"
+        android:pathData="M32,16 H36 V102 H32 Z" />
+    <!-- text lines -->
+    <path
+        android:fillColor="#D8C2BA"
+        android:pathData="M46,38 H78 V42 H46 Z" />
+    <path
+        android:fillColor="#D8C2BA"
+        android:pathData="M46,52 H72 V56 H46 Z" />
+    <path
+        android:fillColor="#D8C2BA"
+        android:pathData="M46,66 H78 V70 H46 Z" />
+    <!-- heart doodle (terracotta) -->
+    <path
+        android:fillColor="#E07A5F"
+        android:pathData="M62,86 c-3,-4 -9,-4 -9,1 c0,4 9,9 9,9 c0,0 9,-5 9,-9 c0,-5 -6,-5 -9,-1 Z" />
+</vector>
