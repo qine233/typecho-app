@@ -6,6 +6,8 @@
 
 它是我给自己博客（团子笔记）写的日常用 App，所以「一个博主 + 一台手机」这条路径上的细节做得比较满：离线补交、文章缓存、图片压缩上传、字体缩放全局生效。
 
+想直接装：[Releases](https://github.com/qine233/typecho-app/releases/latest) 里有 CI 打好的 debug 包（Android 8.0+ 可装）。
+
 | 首页：双列瀑布流 + 分类筛选条 | 日记动态：按日期分组的单列大图 | 详情页：笔记式正文 + 固定互动栏 |
 | --- | --- | --- |
 | ![首页](docs/screenshots/1-home.png) | ![日记](docs/screenshots/2-diary.png) | ![详情](docs/screenshots/3-post.png) |
