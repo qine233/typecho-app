@@ -99,6 +99,16 @@ fun TypechoNavHost(
         else listOf(HomeTab, DiaryTab, SettingsTab)
     }
 
+    // 切标签只有一种走法。页面里跳去设置页也必须走它：直接 navigate 会把设置页
+    // 压在健康页之上，回头再点「健康」时弹栈和动画对不上，页面就卡在设置页不动了。
+    val switchTab: (String) -> Unit = { route ->
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     Scaffold(
         // 外层 Scaffold 仅负责底部导航栏；顶部/底部系统栏内距交给各页面自己的 Scaffold，
         // 否则状态栏内距会被重复计算，在标题栏上方留出一块空白。
@@ -108,15 +118,7 @@ fun TypechoNavHost(
                 TypechoTabBar(
                     tabs = tabs,
                     currentRoute = currentRoute,
-                    onTabSelected = { tab ->
-                        navController.navigate(tab.navRoute) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
-                            }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    onTabSelected = { tab -> switchTab(tab.navRoute) },
                     onCreateClick = { navController.navigate(Screen.Editor.createRoute()) }
                 )
             }
@@ -170,7 +172,7 @@ fun TypechoNavHost(
             composable(Screen.Health.route) {
                 HealthScreen(
                     appContainer = appContainer,
-                    onOpenSettings = { navController.navigate(Screen.Settings.route) }
+                    onOpenSettings = { switchTab(Screen.Settings.route) }
                 )
             }
 

@@ -14,6 +14,9 @@ import noline.zhouzhou.data.repository.WriteOutcome
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -44,6 +47,24 @@ class HealthViewModel(private val container: AppContainer) : ViewModel() {
 
     init {
         load()
+        watchConfig()
+    }
+
+    /**
+     * 在设置页存好密钥再切回来，这个 ViewModel 还活着、不会重跑 init，
+     * 页面就停在「没配好」的样子上。盯着配置流，变了就自己重载。
+     */
+    private fun watchConfig() {
+        viewModelScope.launch {
+            combine(
+                container.settingsRepository.nolineApiKey,
+                container.settingsRepository.nolineUrlForm,
+                container.settingsRepository.siteConfig
+            ) { key, form, site -> Triple(key, form, site.siteUrl) }
+                .drop(1)                  // 首帧就是 init 里 load() 已经处理过的那次
+                .distinctUntilChanged()
+                .collect { load() }
+        }
     }
 
     private fun load() {

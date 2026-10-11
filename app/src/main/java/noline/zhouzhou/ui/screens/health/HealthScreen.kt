@@ -82,6 +82,11 @@ fun HealthScreen(
             if (state.showSetupGuide) {
                 SetupGuide(issue = state.issue, hint = state.issueHint, onOpenSettings = onOpenSettings)
             } else {
+                // 有旧数据就别把页面变成错误页，但也不能装作一切正常：顶部压一条横条。
+                if (state.issue != null && state.overview != null) {
+                    IssueStrip(issue = state.issue, hint = state.issueHint, onOpenSettings = onOpenSettings)
+                    Spacer(Modifier.height(4.dp))
+                }
                 val overview = state.overview
                 if (overview == null) {
                     Box(
@@ -515,6 +520,53 @@ private fun SmallScaleIllustration() {
             color = accent.copy(alpha = 0.35f),
             radius = 5f,
             center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.72f)
+        )
+    }
+}
+
+/**
+ * 画的是上次的缓存，但接口现在读不通——一句话说明「这些数据是旧的」，别默默骗人。
+ * 网络抖动不算毛病，只留一行小字；配置类问题才给「去设置」的出口。
+ */
+@Composable
+private fun IssueStrip(issue: NolineIssue?, hint: String, onOpenSettings: () -> Unit) {
+    val blocking = issue != null && issue != NolineIssue.Network
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = NolineGuide.title(issue),
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f)
+            )
+            if (blocking) {
+                Text(
+                    "去设置",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = LocalAccent.current,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onOpenSettings)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = "下面是上次同步到的内容" +
+                if (hint.isNotBlank() && issue != NolineIssue.Network) "：$hint" else "，联网或配好后会自动刷新",
+            fontSize = 11.5.sp,
+            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.75f),
+            lineHeight = 17.sp
         )
     }
 }
