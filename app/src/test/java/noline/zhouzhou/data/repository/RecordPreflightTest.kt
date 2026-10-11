@@ -15,17 +15,20 @@ class RecordPreflightTest {
     private fun errorsOf(date: String, weight: String, fat: String = "", note: String = "") =
         RecordPreflight.validate(date, weight, fat, note)
 
+    // 预检会拦「未来的日期」，所以样例日期必须跟着跑测试这台机器的今天走，不能写死。
+    private val today: String get() = LocalDate.now().toString()
+
     private fun blocking(date: String, weight: String, fat: String = "", note: String = "") =
         errorsOf(date, weight, fat, note).filter { it.blocking }.map { it.field }
 
     @Test
     fun `normal entry passes`() {
-        assertEquals(emptyList<String>(), errorsOf("2026-10-12", "66.4", "18.2", "早上称的"))
+        assertEquals(emptyList<String>(), errorsOf(today, "66.4", "18.2", "早上称的"))
     }
 
     @Test
     fun `fat and note are optional`() {
-        assertTrue(errorsOf("2026-10-12", "66.4").isEmpty())
+        assertTrue(errorsOf(today, "66.4").isEmpty())
     }
 
     @Test
@@ -49,16 +52,16 @@ class RecordPreflightTest {
 
     @Test
     fun `weight must be a number in range`() {
-        assertEquals(listOf("weight"), blocking("2026-10-12", "abc"))
-        assertEquals(listOf("weight"), blocking("2026-10-12", "19.9"))
-        assertEquals(listOf("weight"), blocking("2026-10-12", "400.1"))
-        assertTrue(blocking("2026-10-12", "20").isEmpty())
-        assertTrue(blocking("2026-10-12", "400").isEmpty())
+        assertEquals(listOf("weight"), blocking(today, "abc"))
+        assertEquals(listOf("weight"), blocking(today, "19.9"))
+        assertEquals(listOf("weight"), blocking(today, "400.1"))
+        assertTrue(blocking(today, "20").isEmpty())
+        assertTrue(blocking(today, "400").isEmpty())
     }
 
     @Test
     fun `out of range fat is a warning not a blocker`() {
-        val errors = errorsOf("2026-10-12", "66.4", "0.5")
+        val errors = errorsOf(today, "66.4", "0.5")
         assertEquals(listOf("fat"), errors.map { it.field })
         assertFalse(errors.first().blocking)
         assertTrue(
@@ -69,20 +72,20 @@ class RecordPreflightTest {
 
     @Test
     fun `non numeric fat blocks`() {
-        assertEquals(listOf("fat"), blocking("2026-10-12", "66.4", "低"))
+        assertEquals(listOf("fat"), blocking(today, "66.4", "低"))
     }
 
     @Test
     fun `over long note is a warning`() {
-        val errors = errorsOf("2026-10-12", "66.4", "", "字".repeat(201))
+        val errors = errorsOf(today, "66.4", "", "字".repeat(201))
         assertEquals(listOf("note"), errors.map { it.field })
         assertFalse(errors.first().blocking)
     }
 
     @Test
     fun `today is formatted the way the api wants`() {
-        val today = RecordPreflight.today()
-        assertEquals(10, today.length)
-        assertEquals(LocalDate.now().toString(), today)
+        val fromApi = RecordPreflight.today()
+        assertEquals(10, fromApi.length)
+        assertEquals(LocalDate.now().toString(), fromApi)
     }
 }
