@@ -133,8 +133,14 @@ fun WaterfallPostCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column {
-            // 无图但有真标题时改用文字封面；标题已经排在封面上，正文就只留一段说明。
-            val textCover = cover == null && post.hasMeaningfulTitle
+            // 无图文章一律排一块暖色文字封面；标题是占位符时拿正文首句上封面，
+            // 免得卡片退化成一片白，在双列里像没加载出来。
+            val coverText = when {
+                cover != null -> null
+                post.hasMeaningfulTitle -> post.displayTitle
+                else -> post.plainExcerpt.ifBlank { post.displayTitle }
+            }
+            val textCover = coverText != null && coverText.isNotBlank()
 
             if (cover != null) {
                 CoverImage(
@@ -145,7 +151,7 @@ fun WaterfallPostCard(
                 )
             } else if (textCover) {
                 TextCover(
-                    title = post.displayTitle,
+                    title = coverText,
                     seed = seed,
                     modifier = Modifier.heightIn(min = 112.dp).clip(topShape)
                 )
@@ -157,20 +163,26 @@ fun WaterfallPostCard(
                     .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp)
             ) {
                 val primaryText = when {
-                    textCover -> post.plainExcerpt.ifBlank { post.displayDate }
+                    // 封面上是标题，这里给摘要；封面上已经是正文，这里只留日期。
+                    textCover && post.hasMeaningfulTitle -> post.plainExcerpt.ifBlank { post.displayDate }
+                    textCover -> post.displayDate
                     cover != null -> if (post.hasMeaningfulTitle) post.displayTitle else post.displayDate
                     else -> post.plainExcerpt.ifBlank { post.displayDate }
                 }
-                Text(
-                    text = primaryText,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = if (textCover) FontWeight.Normal else FontWeight.Medium,
-                    maxLines = if (textCover || post.hasMeaningfulTitle || cover != null) 2 else 4,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (textCover) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.height(10.dp))
+                // Typecho 的列表接口有时不回 dateCreated，日期就是空的；
+                // 空行连同一截间距一起省掉，别在封面和作者之间留一条白带。
+                if (primaryText.isNotBlank()) {
+                    Text(
+                        text = primaryText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = if (textCover) FontWeight.Normal else FontWeight.Medium,
+                        maxLines = if (textCover || post.hasMeaningfulTitle || cover != null) 2 else 4,
+                        overflow = TextOverflow.Ellipsis,
+                        color = if (textCover) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     FeedAvatar(name = post.author.ifBlank { post.displayTitle }, size = 20.dp)
                     Spacer(Modifier.width(6.dp))

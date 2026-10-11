@@ -1,6 +1,13 @@
 package noline.zhouzhou.ui.screens.health
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +23,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -89,10 +98,7 @@ fun HealthScreen(
                 }
                 val overview = state.overview
                 if (overview == null) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(320.dp),
-                        contentAlignment = Alignment.Center
-                    ) { CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp) }
+                    HealthSkeleton()
                 } else if (overview.count == 0) {
                     NoRecordYet()
                 } else {
@@ -274,14 +280,16 @@ private fun GoalCard(overview: HealthOverview) {
                 val progress = if (start <= goal.target) 1f
                 else ((start - (overview.latest?.weight ?: start)) / (start - goal.target))
                     .coerceIn(0.0, 1.0).toFloat()
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(7.dp)
-                        .clip(RoundedCornerShape(999.dp)),
-                    color = accent,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                GoalBar(progress)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    when {
+                        goal.done -> "已经到了，守住它"
+                        progress <= 0f -> "刚起头，先记满几天再说"
+                        else -> "已经走完了 ${((progress * 100).toInt()).coerceIn(1, 99)}%"
+                    },
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )
             }
             ideal != null -> {
@@ -310,15 +318,105 @@ private fun GoalCard(overview: HealthOverview) {
     }
 }
 
+/** 第一次进来（本机还没缓存过）时按真页面的骨架呼吸，比中间转个圈体面。 */
+@Composable
+private fun HealthSkeleton() {
+    val transition = rememberInfiniteTransition(label = "healthSkeleton")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
+        label = "healthPulse"
+    )
+    val base = MaterialTheme.colorScheme.outlineVariant
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        SkeletonBlock(base, pulse, 0.45f, 46, 10)
+        Spacer(Modifier.height(10.dp))
+        SkeletonBlock(base, pulse, 0.28f, 26, 13)
+        Spacer(Modifier.height(20.dp))
+        SkeletonBlock(base, pulse, 1f, 108, 16)
+        Spacer(Modifier.height(14.dp))
+        SkeletonBlock(base, pulse, 1f, 74, 14)
+        Spacer(Modifier.height(14.dp))
+        SkeletonBlock(base, pulse, 1f, 260, 16)
+    }
+}
+
+@Composable
+private fun SkeletonBlock(
+    base: Color,
+    alpha: Float,
+    widthFraction: Float,
+    height: Int,
+    radius: Int
+) {
+    Box(
+        Modifier
+            .fillMaxWidth(widthFraction)
+            .height(height.dp)
+            .clip(RoundedCornerShape(radius.dp))
+            .background(base.copy(alpha = alpha))
+    )
+}
+
+/**
+ * 自绘的目标进度条。Material 的 LinearProgressIndicator 在这套暖色主题下
+ * 轨道和填充几乎同色，0% 时只剩末端一个圆点，完全读不出进度。
+ */
+@Composable
+private fun GoalBar(progress: Float) {
+    val accent = LocalAccent.current
+    val track = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(7.dp)
+            .clip(RoundedCornerShape(999.dp))
+    ) {
+        val r = CornerRadius(size.height / 2f)
+        drawRoundRect(color = track, cornerRadius = r, size = Size(size.width, size.height))
+        val filled = (size.height * 0.9f).coerceAtMost(size.width * progress.coerceIn(0f, 1f))
+        drawRoundRect(color = accent, cornerRadius = r, size = Size(filled, size.height))
+    }
+}
+
 @Composable
 private fun ChangeChips(overview: HealthOverview) {
+    val chips = listOf("d7" to "7 天", "d30" to "30 天", "d90" to "90 天")
+    // 服务器会回一个只有壳子没有 delta 的条目，所以看的是差值在不在，不是条目在不在。
+    if (chips.all { overview.changes[it.first]?.delta == null }) {
+        // 一条基线都没有时，三张「— / 无基线」的空卡不如一句话。
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Text("还看不出变化", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                "再记几天，这里会给出 7 天 / 30 天 / 90 天各减了多少。",
+                fontSize = 11.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 17.sp
+            )
+        }
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        listOf("d7" to "7 天", "d30" to "30 天", "d90" to "90 天").forEach { (key, label) ->
+        chips.forEach { (key, label) ->
             ChangeChip(label, overview.changes[key], Modifier.weight(1f))
         }
     }

@@ -46,7 +46,7 @@
     <string name="settings_dark_mode_dark">深色</string>
     <string name="settings_font_size">字体大小</string>
     <string name="settings_about">关于</string>
-    <string name="settings_version">版本</string>
+    <string name="settings_version">"版本 "</string>
     <string name="settings_open_source">开源许可</string>
     <string name="settings_site_info">站点信息</string>
     <string name="settings_test_connection">测试连接</string>
