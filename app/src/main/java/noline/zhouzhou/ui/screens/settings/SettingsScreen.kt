@@ -97,7 +97,7 @@ fun SettingsScreen(
                     Spacer(Modifier.width(16.dp))
                     Column {
                         Text(
-                            text = uiState.blogName.ifBlank { "Typecho" },
+                            text = uiState.blogName.ifBlank { stringResource(R.string.app_name) },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
