@@ -33,20 +33,20 @@ jobs:
         run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
 
       - name: 整理产物名
-        run: cp app/build/outputs/apk/debug/app-debug.apk "TypechoApp-${GITHUB_REF_NAME}-debug.apk"
+        run: cp app/build/outputs/apk/debug/app-debug.apk "NLecho-${GITHUB_REF_NAME}-debug.apk"
 
       - name: 上传到 Artifacts
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
           name: debug-apk
-          path: TypechoApp-*-debug.apk
+          path: NLecho-*-debug.apk
 
       - name: 发布到 Releases
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
-          files: TypechoApp-*-debug.apk
+          files: NLecho-*-debug.apk
           generate_release_notes: true
           append_body: true
           body: |

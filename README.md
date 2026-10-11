@@ -1,4 +1,4 @@
-# Typecho App
+# NLecho
 
 一个给 [Typecho](https://typecho.org/) 博客用的原生 Android 客户端：**Kotlin + Jetpack Compose + Material 3**，数据全部走 Typecho 自带的 XML-RPC 接口，不依赖任何服务端插件就能看文章、写文章、管评论。
 
