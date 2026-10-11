@@ -1,0 +1,557 @@
+package noline.zhouzhou.ui.screens.editor
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import noline.zhouzhou.AppContainer
+import noline.zhouzhou.R
+import noline.zhouzhou.ui.typechoViewModel
+import noline.zhouzhou.util.HtmlContent
+import noline.zhouzhou.util.MarkdownRenderer
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun EditorScreen(
+    appContainer: AppContainer,
+    postId: String?,
+    onBack: () -> Unit,
+    onSaved: () -> Unit
+) {
+    val viewModel = typechoViewModel<EditorViewModel>(appContainer) { EditorViewModel(it, postId) }
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val view = LocalView.current
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    var showDiscardDialog by remember { mutableStateOf(false) }
+    var showMoreOptions by remember { mutableStateOf(false) }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) viewModel.onImagePicked(uri)
+    }
+    val pickImage: () -> Unit = {
+        imagePicker.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+
+    LaunchedEffect(uiState.saveSuccess) {
+        if (uiState.saveSuccess) {
+            android.widget.Toast.makeText(context, R.string.admin_saved, android.widget.Toast.LENGTH_SHORT).show()
+            viewModel.clearSaveSuccess()
+            onSaved()
+        }
+    }
+
+    // 沉浸模式隐藏系统状态栏/导航栏，退出时恢复。
+    LaunchedEffect(uiState.isImmersive) {
+        val window = (context as? android.app.Activity)?.window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(window, view)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (uiState.isImmersive) controller.hide(WindowInsetsCompat.Type.systemBars())
+        else controller.show(WindowInsetsCompat.Type.systemBars())
+    }
+
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text(stringResource(R.string.editor_discard)) },
+            text = { Text(stringResource(R.string.editor_discard_confirm)) },
+            confirmButton = {
+                TextButton(onClick = { showDiscardDialog = false; onBack() }) {
+                    Text(stringResource(R.string.action_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            if (!uiState.isImmersive) TopAppBar(
+                title = {
+                    Text(
+                        if (postId != null) stringResource(R.string.admin_edit_post)
+                        else stringResource(R.string.admin_new_post)
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        if (uiState.hasChanges) showDiscardDialog = true else onBack()
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = viewModel::togglePreview) {
+                        Icon(
+                            if (uiState.isPreview) Icons.Default.Edit else Icons.Default.Visibility,
+                            contentDescription = if (uiState.isPreview) "编辑" else "预览"
+                        )
+                    }
+                    IconButton(onClick = viewModel::toggleImmersive) {
+                        Icon(Icons.Default.Fullscreen, contentDescription = "沉浸写作")
+                    }
+                    IconButton(onClick = { showMoreOptions = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                    }
+                    DropdownMenu(expanded = showMoreOptions, onDismissRequest = { showMoreOptions = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.admin_publish)) },
+                            leadingIcon = { Icon(Icons.Default.Publish, contentDescription = null) },
+                            onClick = { showMoreOptions = false; viewModel.save(publish = true) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("存为草稿") },
+                            leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
+                            onClick = { showMoreOptions = false; viewModel.save(publish = false) }
+                        )
+                    }
+                    Button(
+                        onClick = { viewModel.save(publish = uiState.status == "publish") },
+                        modifier = Modifier.padding(end = 12.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        if (uiState.isSaving) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text(stringResource(R.string.admin_save))
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            )
+        }
+    ) { innerPadding ->
+        if (uiState.isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (uiState.isImmersive) {
+            ImmersiveEditor(
+                uiState = uiState,
+                onContentValueChange = viewModel::onContentValueChange,
+                onApply = viewModel::applyMarkdown,
+                onPickImage = pickImage,
+                onUndo = viewModel::undo,
+                onRedo = viewModel::redo,
+                onSave = { viewModel.save(publish = uiState.status == "publish") },
+                onExit = viewModel::toggleImmersive
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                AnimatedVisibility(visible = !uiState.isPreview) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        // Title
+                        OutlinedTextField(
+                            value = uiState.title,
+                            onValueChange = viewModel::onTitleChange,
+                            placeholder = { Text(stringResource(R.string.editor_title_hint)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            shape = MaterialTheme.shapes.medium
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        // Markdown toolbar
+                        MarkdownToolbar(
+                            onAction = viewModel::applyMarkdown,
+                            onPickImage = pickImage,
+                            isUploadingImage = uiState.isUploadingImage,
+                            onUndo = viewModel::undo,
+                            onRedo = viewModel::redo,
+                            canUndo = uiState.canUndo,
+                            canRedo = uiState.canRedo
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        // Content
+                        OutlinedTextField(
+                            value = TextFieldValue(uiState.content, uiState.contentSelection),
+                            onValueChange = viewModel::onContentValueChange,
+                            placeholder = { Text(stringResource(R.string.editor_content_hint)) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 320.dp),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                            maxLines = Int.MAX_VALUE,
+                            shape = MaterialTheme.shapes.medium
+                        )
+
+                        if (uiState.isUploadingImage) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp), strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "正在压缩并上传到站点…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+
+                        // Expandable: excerpt, tags, categories, status
+                        var showAdvanced by remember { mutableStateOf(false) }
+                        TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                            Icon(
+                                if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null, modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("高级选项")
+                        }
+
+                        AnimatedVisibility(visible = showAdvanced) {
+                            Column {
+                                Spacer(Modifier.height(8.dp))
+
+                                // Excerpt
+                                OutlinedTextField(
+                                    value = uiState.excerpt,
+                                    onValueChange = viewModel::onExcerptChange,
+                                    placeholder = { Text(stringResource(R.string.editor_excerpt_hint)) },
+                                    label = { Text("摘要") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 2, maxLines = 4
+                                )
+
+                                Spacer(Modifier.height(8.dp))
+
+                                // Tags
+                                OutlinedTextField(
+                                    value = uiState.tagsText,
+                                    onValueChange = viewModel::onTagsChange,
+                                    placeholder = { Text(stringResource(R.string.editor_tags_hint)) },
+                                    label = { Text("标签") },
+                                    leadingIcon = { Icon(Icons.Default.Tag, contentDescription = null) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
+
+                                Spacer(Modifier.height(8.dp))
+
+                                // Categories
+                                Text(stringResource(R.string.editor_category),
+                                    style = MaterialTheme.typography.titleSmall)
+                                Spacer(Modifier.height(4.dp))
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    uiState.categories.forEach { cat ->
+                                        FilterChip(
+                                            selected = uiState.selectedCategories.contains(cat.name),
+                                            onClick = { viewModel.toggleCategory(cat.name) },
+                                            label = { Text(cat.name) }
+                                        )
+                                    }
+                                }
+
+                                Spacer(Modifier.height(8.dp))
+
+                                // Status
+                                Text("发布状态", style = MaterialTheme.typography.titleSmall)
+                                Spacer(Modifier.height(4.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("publish" to "发布", "draft" to "草稿", "private" to "私密")
+                                        .forEach { (value, label) ->
+                                            FilterChip(
+                                                selected = uiState.status == value,
+                                                onClick = { viewModel.onStatusChange(value) },
+                                                label = { Text(label) }
+                                            )
+                                        }
+                                }
+                            }
+                        }
+
+                        uiState.error?.let { error ->
+                            Spacer(Modifier.height(8.dp))
+                            Text(error, color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                AnimatedVisibility(visible = uiState.isPreview) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text(
+                            text = uiState.title.ifBlank { "（无标题）" },
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(16.dp))
+                        HtmlContent(
+                            html = MarkdownRenderer.toHtml(uiState.content),
+                            darkTheme = isDark
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownToolbar(
+    onAction: (MarkdownAction) -> Unit,
+    onPickImage: () -> Unit,
+    isUploadingImage: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    canUndo: Boolean,
+    canRedo: Boolean
+) {
+    val groups = listOf(
+        listOf(
+            Triple(Icons.Default.FormatBold, "加粗", MarkdownAction.Bold),
+            Triple(Icons.Default.FormatItalic, "斜体", MarkdownAction.Italic),
+            Triple(Icons.Default.FormatStrikethrough, "删除线", MarkdownAction.Strike),
+            Triple(Icons.Default.Title, "标题", MarkdownAction.Heading2)
+        ),
+        listOf(
+            Triple(Icons.Default.FormatListBulleted, "无序列表", MarkdownAction.BulletList),
+            Triple(Icons.Default.FormatListNumbered, "有序列表", MarkdownAction.OrderedList),
+            Triple(Icons.Default.FormatQuote, "引用", MarkdownAction.Quote),
+            Triple(Icons.Default.Code, "行内代码", MarkdownAction.InlineCode)
+        ),
+        listOf(
+            Triple(Icons.Default.Link, "链接", MarkdownAction.Link),
+            Triple(Icons.Default.TableChart, "表格", MarkdownAction.Table),
+            Triple(Icons.Default.HorizontalRule, "分割线", MarkdownAction.Divider)
+        )
+    )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 撤销 / 重做
+            IconButton(onClick = onUndo, enabled = canUndo, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Undo, contentDescription = "撤销",
+                    modifier = Modifier.size(20.dp),
+                    tint = if (canUndo) MaterialTheme.colorScheme.onSurfaceVariant
+                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+            }
+            IconButton(onClick = onRedo, enabled = canRedo, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Redo, contentDescription = "重做",
+                    modifier = Modifier.size(20.dp),
+                    tint = if (canRedo) MaterialTheme.colorScheme.onSurfaceVariant
+                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+            }
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .height(24.dp)
+                    .width(1.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant)
+            )
+            // 图片：直接从相册挑，压缩后上传到站点再插进光标处
+            IconButton(onClick = onPickImage, modifier = Modifier.size(40.dp)) {
+                if (isUploadingImage) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Image, contentDescription = "插入图片",
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .height(24.dp)
+                    .width(1.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant)
+            )
+            // 格式化按钮
+            groups.forEachIndexed { gi, group ->
+                group.forEach { (icon, label, action) ->
+                    IconButton(onClick = { onAction(action) }, modifier = Modifier.size(40.dp)) {
+                        Icon(icon, contentDescription = label,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (gi < groups.lastIndex) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .height(24.dp)
+                            .width(1.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 全屏沉浸写作：隐藏系统栏与多余控件，只留一个舒适的大输入区和极简顶栏。 */
+@Composable
+private fun ImmersiveEditor(
+    uiState: EditorUiState,
+    onContentValueChange: (TextFieldValue) -> Unit,
+    onApply: (MarkdownAction) -> Unit,
+    onPickImage: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onSave: () -> Unit,
+    onExit: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onExit) {
+                Icon(Icons.Default.FullscreenExit, contentDescription = "退出沉浸")
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                uiState.title.ifBlank { stringResource(R.string.editor_title_hint) },
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onUndo, enabled = uiState.canUndo) {
+                Icon(Icons.Default.Undo, contentDescription = "撤销")
+            }
+            IconButton(onClick = onRedo, enabled = uiState.canRedo) {
+                Icon(Icons.Default.Redo, contentDescription = "重做")
+            }
+            if (uiState.isSaving) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp).padding(horizontal = 8.dp), strokeWidth = 2.dp)
+            } else {
+                TextButton(onClick = onSave, modifier = Modifier.padding(end = 4.dp)) {
+                    Text(stringResource(R.string.admin_save))
+                }
+            }
+        }
+
+        uiState.error?.let { error ->
+            Text(
+                error,
+                modifier = Modifier.padding(horizontal = 20.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            if (uiState.content.isEmpty()) {
+                Text(
+                    stringResource(R.string.editor_content_hint),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
+            BasicTextField(
+                value = TextFieldValue(uiState.content, uiState.contentSelection),
+                onValueChange = onContentValueChange,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                textStyle = MaterialTheme.typography.titleMedium.copy(
+                    lineHeight = 32.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+            )
+        }
+
+        MarkdownToolbar(
+            onAction = onApply,
+            onPickImage = onPickImage,
+            isUploadingImage = uiState.isUploadingImage,
+            onUndo = onUndo,
+            onRedo = onRedo,
+            canUndo = uiState.canUndo,
+            canRedo = uiState.canRedo
+        )
+        Spacer(Modifier.navigationBarsPadding().height(4.dp))
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FlowRow(
+    modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    content: @Composable FlowRowScope.() -> Unit
+) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = modifier,
+        horizontalArrangement = horizontalArrangement,
+        verticalArrangement = verticalArrangement,
+        content = content
+    )
+}

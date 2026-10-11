@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.typecho.app"
+    namespace = "noline.zhouzhou"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.typecho.app"
+        applicationId = "noline.zhouzhou"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
