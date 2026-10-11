@@ -47,7 +47,7 @@
 ## 目录结构
 
 ```
-app/src/main/java/com/typecho/app/
+app/src/main/java/noline/zhouzhou/
 ├── MainActivity.kt / AppContainer.kt      # 单 Activity + 依赖容器
 ├── data/
 │   ├── model/       # Post / Comment / HealthOverview 等数据类
@@ -71,13 +71,31 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-需要 JDK 17 和 Android SDK 35。debug 包名带 `.debug` 后缀（`com.typecho.app.debug`），可以和 release 并存。
+需要 JDK 17 和 Android SDK 35。包名 `noline.zhouzhou`，debug 构建带 `.debug` 后缀（`noline.zhouzhou.debug`），可以和 release 并存。
 
 跑测试：
 
 ```bash
 ./gradlew testDebugUnitTest
 ```
+
+## 自动构建与下载
+
+`.github/workflows/build-apk.yml` 在 GitHub 上跑编译，不用本地装 Android Studio：
+
+| 触发 | 结果 |
+| --- | --- |
+| 推 `v*` 标签（如 `v1.0.0`） | 建 Release，把 APK 作为附件挂上去，可直接下载装机 |
+| push 到 `main` / PR / 手动 Run workflow | 只跑测试 + 编译，APK 放在那次运行的 **Artifacts** 里 |
+
+所以想要一个能装的新包：合并到 `main` 后去 Actions 页面拿 Artifacts；想给外人一个稳定入口，就打 tag。
+
+发的是 **debug 签名**包（Android 通用 debug keystore），能直接安装，但每次覆盖安装都算同一个签名。要出正式签名的 release 包，需要自己补两步：
+
+1. 仓库 Settings → Secrets and variables → Actions 里加 `KEYSTORE_BASE64`（`base64 -w0 your.jks` 的结果）、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`
+2. `app/build.gradle.kts` 的 `release` 里加 `signingConfig`，从上面几个 secret 读，再在工作流里加一步 `assembleRelease` 并把产物一起上传
+
+没有把 keystore 塞进工作流，是因为私钥一旦进过仓库历史就收不回来。
 
 ## 登录：直连站点自带的 XML-RPC
 
