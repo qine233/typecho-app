@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -31,6 +33,10 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
+import noline.zhouzhou.ui.theme.LocalNoLine
+import noline.zhouzhou.ui.theme.NoLineChip
+import noline.zhouzhou.ui.theme.noLineCard
+import noline.zhouzhou.ui.theme.noLineFieldColors
 import noline.zhouzhou.ui.typechoViewModel
 import noline.zhouzhou.util.HtmlContent
 import noline.zhouzhou.util.MarkdownRenderer
@@ -40,14 +46,14 @@ import noline.zhouzhou.util.MarkdownRenderer
 fun EditorScreen(
     appContainer: AppContainer,
     postId: String?,
+    isPage: Boolean = false,
     onBack: () -> Unit,
     onSaved: () -> Unit
 ) {
-    val viewModel = typechoViewModel<EditorViewModel>(appContainer) { EditorViewModel(it, postId) }
+    val viewModel = typechoViewModel<EditorViewModel>(appContainer) { EditorViewModel(it, postId, isPage) }
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val view = LocalView.current
-    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showMoreOptions by remember { mutableStateOf(false) }
 
@@ -103,8 +109,14 @@ fun EditorScreen(
             if (!uiState.isImmersive) TopAppBar(
                 title = {
                     Text(
-                        if (postId != null) stringResource(R.string.admin_edit_post)
-                        else stringResource(R.string.admin_new_post)
+                        stringResource(
+                            when {
+                                isPage && postId != null -> R.string.admin_edit_page
+                                isPage -> R.string.admin_new_page
+                                postId != null -> R.string.admin_edit_post
+                                else -> R.string.admin_new_post
+                            }
+                        )
                     )
                 },
                 navigationIcon = {
@@ -151,7 +163,12 @@ fun EditorScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = LocalNoLine.current.pageBg,
+                    titleContentColor = LocalNoLine.current.textStrong,
+                    navigationIconContentColor = LocalNoLine.current.textStrong,
+                    actionIconContentColor = LocalNoLine.current.textSecondary
+                )
             )
         }
     ) { innerPadding ->
@@ -183,11 +200,16 @@ fun EditorScreen(
                         OutlinedTextField(
                             value = uiState.title,
                             onValueChange = viewModel::onTitleChange,
-                            placeholder = { Text(stringResource(R.string.editor_title_hint)) },
+                            placeholder = {
+                                Text(stringResource(
+                                    if (isPage) R.string.editor_page_title_hint else R.string.editor_title_hint
+                                ))
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            shape = MaterialTheme.shapes.medium
+                            shape = MaterialTheme.shapes.medium,
+                            colors = noLineFieldColors()
                         )
 
                         Spacer(Modifier.height(12.dp))
@@ -215,7 +237,8 @@ fun EditorScreen(
                                 fontFamily = FontFamily.Monospace
                             ),
                             maxLines = Int.MAX_VALUE,
-                            shape = MaterialTheme.shapes.medium
+                            shape = MaterialTheme.shapes.medium,
+                            colors = noLineFieldColors()
                         )
 
                         if (uiState.isUploadingImage) {
@@ -257,7 +280,8 @@ fun EditorScreen(
                                     placeholder = { Text(stringResource(R.string.editor_excerpt_hint)) },
                                     label = { Text("摘要") },
                                     modifier = Modifier.fillMaxWidth(),
-                                    minLines = 2, maxLines = 4
+                                    minLines = 2, maxLines = 4,
+                                    colors = noLineFieldColors()
                                 )
 
                                 Spacer(Modifier.height(8.dp))
@@ -270,29 +294,32 @@ fun EditorScreen(
                                     label = { Text("标签") },
                                     leadingIcon = { Icon(Icons.Default.Tag, contentDescription = null) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
+                                    singleLine = true,
+                                    colors = noLineFieldColors()
                                 )
 
                                 Spacer(Modifier.height(8.dp))
 
-                                // Categories
-                                Text(stringResource(R.string.editor_category),
-                                    style = MaterialTheme.typography.titleSmall)
-                                Spacer(Modifier.height(4.dp))
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    uiState.categories.forEach { cat ->
-                                        FilterChip(
-                                            selected = uiState.selectedCategories.contains(cat.name),
-                                            onClick = { viewModel.toggleCategory(cat.name) },
-                                            label = { Text(cat.name) }
-                                        )
+                                // Categories（页面没有分类这一说，只在文章里出现）
+                                if (!isPage) {
+                                    Text(stringResource(R.string.editor_category),
+                                        style = MaterialTheme.typography.titleSmall)
+                                    Spacer(Modifier.height(4.dp))
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        uiState.categories.forEach { cat ->
+                                            NoLineChip(
+                                                label = cat.name,
+                                                selected = uiState.selectedCategories.contains(cat.name),
+                                                onClick = { viewModel.toggleCategory(cat.name) }
+                                            )
+                                        }
                                     }
-                                }
 
-                                Spacer(Modifier.height(8.dp))
+                                    Spacer(Modifier.height(8.dp))
+                                }
 
                                 // Status
                                 Text("发布状态", style = MaterialTheme.typography.titleSmall)
@@ -300,10 +327,10 @@ fun EditorScreen(
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("publish" to "发布", "draft" to "草稿", "private" to "私密")
                                         .forEach { (value, label) ->
-                                            FilterChip(
+                                            NoLineChip(
+                                                label = label,
                                                 selected = uiState.status == value,
-                                                onClick = { viewModel.onStatusChange(value) },
-                                                label = { Text(label) }
+                                                onClick = { viewModel.onStatusChange(value) }
                                             )
                                         }
                                 }
@@ -319,19 +346,21 @@ fun EditorScreen(
                 }
 
                 AnimatedVisibility(visible = uiState.isPreview) {
-                    Column(modifier = Modifier.padding(20.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp)
+                            .noLineCard(RoundedCornerShape(12.dp))
+                            .padding(horizontal = 18.dp, vertical = 20.dp)
+                    ) {
                         Text(
                             text = uiState.title.ifBlank { "（无标题）" },
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = LocalNoLine.current.textStrong
                         )
                         Spacer(Modifier.height(16.dp))
-                        HorizontalDivider()
-                        Spacer(Modifier.height(16.dp))
-                        HtmlContent(
-                            html = MarkdownRenderer.toHtml(uiState.content),
-                            darkTheme = isDark
-                        )
+                        HtmlContent(html = MarkdownRenderer.toHtml(uiState.content))
                     }
                 }
             }
@@ -369,8 +398,8 @@ private fun MarkdownToolbar(
         )
     )
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().noLineCard(MaterialTheme.shapes.medium),
+        color = Color.Transparent,
         shape = MaterialTheme.shapes.medium
     ) {
         Row(

@@ -26,11 +26,13 @@ fun CommentItem(
     onReply: ((Comment) -> Unit)? = null,
     onDelete: ((Comment) -> Unit)? = null,
     onApprove: ((Comment) -> Unit)? = null,
-    showActions: Boolean = false
+    showActions: Boolean = false,
+    /** 列表里各条已经各自成卡时，这条收尾线就多余了。 */
+    divider: Boolean = true
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(vertical = 10.dp),
+            modifier = Modifier.padding(vertical = if (divider) 10.dp else 13.dp),
             verticalAlignment = Alignment.Top
         ) {
             FeedAvatar(name = comment.author, size = 32.dp)
@@ -93,7 +95,7 @@ fun CommentItem(
             }
         }
 
-        HorizontalDivider(
+        if (divider) HorizontalDivider(
             modifier = Modifier.padding(start = 42.dp),
             thickness = 0.5.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)

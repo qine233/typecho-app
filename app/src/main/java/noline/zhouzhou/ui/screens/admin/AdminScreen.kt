@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,12 +20,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.data.model.Post
-import noline.zhouzhou.ui.theme.LocalAccent
+import noline.zhouzhou.ui.components.LoadMoreFooter
+import noline.zhouzhou.ui.theme.LocalNoLine
+import noline.zhouzhou.ui.theme.noLineCard
 import noline.zhouzhou.ui.typechoViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,17 +39,32 @@ fun AdminScreen(
     onPostClick: (String) -> Unit,
     onNewPost: () -> Unit,
     onEditPost: (String) -> Unit,
-    onViewComments: () -> Unit
+    onViewComments: () -> Unit,
+    onViewPages: () -> Unit,
+    onViewCategories: () -> Unit
 ) {
     val viewModel = typechoViewModel<AdminViewModel>(appContainer) { AdminViewModel(it) }
     val uiState by viewModel.uiState.collectAsState()
+    val t = LocalNoLine.current
     var postToDelete by remember { mutableStateOf<Post?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+
+    // 快滑到底就自动取下一页
+    LaunchedEffect(listState, uiState.posts.size) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            (info.visibleItemsInfo.lastOrNull()?.index ?: -1) to info.totalItemsCount
+        }.collect { (lastVisible, total) ->
+            if (total > 1 && lastVisible >= total - 1) viewModel.loadMore()
+        }
+    }
 
     postToDelete?.let { post ->
         AlertDialog(
             onDismissRequest = { postToDelete = null },
             title = { Text(stringResource(R.string.admin_delete_post)) },
-            text = { Text(stringResource(R.string.admin_delete_confirm, post.displayTitle)) },
+            text = { Text(stringResource(R.string.admin_delete_confirm, post.adminTitle())) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deletePost(post.postId) { postToDelete = null }
@@ -60,15 +80,15 @@ fun AdminScreen(
 
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = t.pageBg,
         topBar = {
             AdminHeader(loading = uiState.isLoading, onRefresh = { viewModel.loadPosts() })
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onNewPost,
-                containerColor = LocalAccent.current,
-                contentColor = Color.White,
+                containerColor = t.accent,
+                contentColor = t.onBrand,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text(stringResource(R.string.admin_new_post)) }
             )
@@ -84,7 +104,7 @@ fun AdminScreen(
                         icon = Icons.AutoMirrored.Filled.Article,
                         label = stringResource(R.string.admin_posts),
                         count = uiState.posts.size,
-                        onClick = {}
+                        onClick = { scope.launch { listState.animateScrollToItem(0) } }
                     )
                 }
                 item {
@@ -98,23 +118,23 @@ fun AdminScreen(
                     ActionCard(
                         icon = Icons.Default.Description,
                         label = stringResource(R.string.admin_pages),
-                        onClick = {}
+                        onClick = onViewPages
                     )
                 }
                 item {
                     ActionCard(
                         icon = Icons.Default.FolderOpen,
                         label = stringResource(R.string.admin_categories),
-                        onClick = {}
+                        onClick = onViewCategories
                     )
                 }
             }
 
             Text(
-                "最近文章",
+                if (uiState.canLoadMore) "全部文章" else "全部文章 · 共 ${uiState.posts.size} 篇",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = t.textSecondary,
                 modifier = Modifier.padding(start = 18.dp, top = 10.dp, bottom = 2.dp)
             )
 
@@ -129,23 +149,23 @@ fun AdminScreen(
                         modifier = Modifier.fillMaxWidth().padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(uiState.error ?: "读不到文章", fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(uiState.error ?: "读不到文章", fontSize = 13.sp, color = t.textSecondary)
                         Spacer(Modifier.height(12.dp))
                         Text(
                             "重新加载",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color.White,
+                            color = t.onBrand,
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(LocalAccent.current)
+                                .background(t.accent)
                                 .clickable { viewModel.loadPosts() }
                                 .padding(horizontal = 16.dp, vertical = 7.dp)
                         )
                     }
                 }
                 else -> LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -157,6 +177,27 @@ fun AdminScreen(
                             onDelete = { postToDelete = post }
                         )
                     }
+                    item(key = "footer") {
+                        if (uiState.moreError != null) {
+                            Text(
+                                "${uiState.moreError} · 点这里重试",
+                                fontSize = 12.5.sp,
+                                color = t.textLight,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(CircleShape)
+                                    .clickable { viewModel.loadMore() }
+                                    .padding(vertical = 14.dp),
+                                textAlign = TextAlign.Center
+                            )
+                        } else {
+                            LoadMoreFooter(
+                                loading = uiState.isLoadingMore,
+                                canLoadMore = uiState.canLoadMore,
+                                loadedCount = uiState.posts.size
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -165,7 +206,9 @@ fun AdminScreen(
 
 @Composable
 private fun AdminHeader(loading: Boolean, onRefresh: () -> Unit) {
-    Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
+    val t = LocalNoLine.current
+    // 站点没有实心标题栏：标题直接坐在页面底色上，靠一条发丝线和内容分开。
+    Column(modifier = Modifier.background(t.pageBg)) {
         Spacer(Modifier.statusBarsPadding().height(0.dp))
         Row(
             modifier = Modifier
@@ -178,23 +221,26 @@ private fun AdminHeader(loading: Boolean, onRefresh: () -> Unit) {
                 stringResource(R.string.admin_title),
                 fontSize = 19.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = t.textStrong
             )
             Spacer(Modifier.weight(1f))
             if (loading) {
-                CircularProgressIndicator(modifier = Modifier.size(17.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(
+                    modifier = Modifier.size(17.dp),
+                    strokeWidth = 2.dp,
+                    color = t.accent
+                )
             } else {
                 IconButton(onClick = onRefresh, modifier = Modifier.size(34.dp)) {
                     Icon(
                         Icons.Default.Sync,
                         contentDescription = "刷新",
                         modifier = Modifier.size(19.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = t.textSecondary
                     )
                 }
             }
         }
-        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
@@ -205,11 +251,11 @@ private fun ActionCard(
     count: Int? = null,
     onClick: () -> Unit
 ) {
+    val t = LocalNoLine.current
     Column(
         modifier = Modifier
             .width(96.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .noLineCard()
             .clickable(onClick = onClick)
             .padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -218,13 +264,13 @@ private fun ActionCard(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                .background(t.accentBg),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                tint = LocalAccent.current,
+                tint = t.accent,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -233,26 +279,26 @@ private fun ActionCard(
             label,
             fontSize = 12.5.sp,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = t.textMain,
             maxLines = 1
         )
         // 计数那行永远占位，否则「文章管理」比别人高出一截，一排卡片参差不齐。
         Text(
             count?.let { "$it 篇" } ?: " ",
             fontSize = 11.5.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = t.textLight
         )
     }
 }
 
 @Composable
 private fun RowSkeleton() {
+    val t = LocalNoLine.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 5.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .noLineCard()
             .padding(16.dp)
     ) {
         Box(
@@ -260,7 +306,7 @@ private fun RowSkeleton() {
                 .fillMaxWidth(0.6f)
                 .height(13.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                .background(t.coverFallback)
         )
         Spacer(Modifier.height(9.dp))
         Box(
@@ -268,7 +314,7 @@ private fun RowSkeleton() {
                 .fillMaxWidth(0.3f)
                 .height(10.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                .background(t.hairline)
         )
     }
 }
@@ -280,21 +326,21 @@ private fun AdminPostItem(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val t = LocalNoLine.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .noLineCard()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 13.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    post.displayTitle,
+                    post.adminTitle(),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = t.textStrong,
                     maxLines = 1
                 )
                 Spacer(Modifier.height(5.dp))
@@ -302,17 +348,17 @@ private fun AdminPostItem(
                     Text(
                         post.displayDate,
                         fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = t.textLight
                     )
                     post.categories.firstOrNull()?.let { cat ->
                         Spacer(Modifier.width(8.dp))
                         Text(
                             cat,
                             fontSize = 11.5.sp,
-                            color = LocalAccent.current,
+                            color = t.accent,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(LocalAccent.current.copy(alpha = 0.1f))
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(t.accentBg)
                                 .padding(horizontal = 7.dp, vertical = 1.dp)
                         )
                     }
@@ -320,7 +366,7 @@ private fun AdminPostItem(
                 }
             }
 
-            RowIconButton(Icons.Default.Edit, "编辑", onEdit, MaterialTheme.colorScheme.onSurfaceVariant)
+            RowIconButton(Icons.Default.Edit, "编辑", onEdit, t.textSecondary)
             Spacer(Modifier.width(2.dp))
             RowIconButton(Icons.Default.Delete, "删除", onDelete,
                 MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
@@ -332,7 +378,7 @@ private fun AdminPostItem(
             Text(
                 excerpt,
                 fontSize = 12.5.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = t.textSecondary,
                 maxLines = 2,
                 lineHeight = 18.sp
             )
@@ -342,7 +388,8 @@ private fun AdminPostItem(
 
 /** 状态只认 Typecho 那几种，其余原样显示，别把未知状态说成「草稿」。 */
 @Composable
-private fun StatusLabel(status: String) {
+fun StatusLabel(status: String) {
+    val t = LocalNoLine.current
     val label = when (status) {
         "publish" -> return
         "draft" -> "草稿"
@@ -356,16 +403,16 @@ private fun StatusLabel(status: String) {
         label,
         fontSize = 11.sp,
         fontWeight = FontWeight.Medium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = t.textSecondary,
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .clip(RoundedCornerShape(8.dp))
+            .background(t.surfaceSunken)
             .padding(horizontal = 7.dp, vertical = 1.dp)
     )
 }
 
 @Composable
-private fun RowIconButton(
+fun RowIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     desc: String,
     onClick: () -> Unit,
@@ -381,3 +428,8 @@ private fun RowIconButton(
         Icon(icon, contentDescription = desc, modifier = Modifier.size(17.dp), tint = tint)
     }
 }
+
+/** 管理列表里空标题会塌成一条空白行，看不出是哪篇。 */
+@Composable
+fun Post.adminTitle(): String =
+    displayTitle.ifBlank { stringResource(R.string.admin_untitled) }

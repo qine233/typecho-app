@@ -36,6 +36,7 @@ import noline.zhouzhou.data.model.HealthRecord
 import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.ui.components.NolineGuide
 import noline.zhouzhou.ui.theme.LocalAccent
+import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.typechoViewModel
 import kotlinx.coroutines.delay
 
@@ -186,7 +187,7 @@ fun HealthScreen(
                 modifier = Modifier
                     .padding(bottom = 96.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Color(0xCC33241B))
+                    .background(LocalNoLine.current.lightboxBg)
                     .padding(horizontal = 16.dp, vertical = 9.dp)
             )
         }

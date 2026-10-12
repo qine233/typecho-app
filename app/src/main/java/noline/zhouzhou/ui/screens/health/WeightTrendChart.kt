@@ -3,11 +3,13 @@ package noline.zhouzhou.ui.screens.health
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -21,6 +23,8 @@ import noline.zhouzhou.data.model.HealthProfile
 import noline.zhouzhou.data.model.HealthRecord
 import noline.zhouzhou.data.repository.RecordPreflight
 import noline.zhouzhou.ui.theme.LocalAccent
+import noline.zhouzhou.ui.theme.LocalNoLine
+import noline.zhouzhou.ui.theme.NoLineTokens
 
 /**
  * 体重折线。画法对齐网页版 noline_health_trend()：
@@ -187,7 +191,7 @@ private fun SinglePointChart(record: HealthRecord, accent: Color, labelColor: Co
 /** 概览页顶部那张大卡：当前体重 + 涨跌 + BMI 分档。 */
 @Composable
 fun WeightHeroCard(record: HealthRecord?, profile: HealthProfile) {
-    val accent = LocalAccent.current
+    val t = LocalNoLine.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -213,7 +217,12 @@ fun WeightHeroCard(record: HealthRecord?, profile: HealthProfile) {
                     it.deltaLabel,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (it.delta != null && it.delta < 0) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = when {
+                        // 站点把涨跌直接交给 BMI 语义色：降绿升橙，不另找一支强调色
+                        it.delta == null || it.delta == 0.0 -> MaterialTheme.colorScheme.onSurfaceVariant
+                        it.delta < 0 -> t.healthNormal
+                        else -> t.healthOver
+                    },
                     modifier = Modifier.padding(bottom = 9.dp)
                 )
             }
@@ -234,18 +243,16 @@ fun WeightHeroCard(record: HealthRecord?, profile: HealthProfile) {
                     )
                     Spacer(Modifier.width(8.dp))
                     val label = record.categoryLabel.ifBlank { "—" }
+                    val ink = categoryColor(record.category, t)
                     Text(
                         label,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
+                        color = ink,
                         modifier = Modifier
-                            .padding(horizontal = 0.dp)
-                            .background(
-                                categoryColor(record.category, accent),
-                                androidx.compose.foundation.shape.RoundedCornerShape(999.dp)
-                            )
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                            .clip(CircleShape)
+                            .background(ink.copy(alpha = t.healthFill))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
                     )
                 }
             }
@@ -253,10 +260,11 @@ fun WeightHeroCard(record: HealthRecord?, profile: HealthProfile) {
     }
 }
 
-private fun categoryColor(category: String, accent: Color): Color = when (category) {
-    "thin" -> Color(0xFF7BAFD4)
-    "normal" -> Color(0xFF6FA871)
-    "over" -> Color(0xFFD9A441)
-    "obese" -> Color(0xFFCC6B5B)
-    else -> accent
+/** 站点给 BMI 四档的那套语义色，深浅两套各有一次调整。 */
+private fun categoryColor(category: String, t: NoLineTokens): Color = when (category) {
+    "thin" -> t.healthThin
+    "normal" -> t.healthNormal
+    "over" -> t.healthOver
+    "obese" -> t.healthObese
+    else -> t.accent
 }

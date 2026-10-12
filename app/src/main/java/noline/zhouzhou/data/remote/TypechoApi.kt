@@ -92,18 +92,18 @@ class TypechoApi(
 
     suspend fun newPost(
         url: String, blogId: String, username: String, password: String,
-        post: Post, publish: Boolean
+        post: Post, publish: Boolean, isPage: Boolean = false
     ): String {
-        val struct = buildPostStruct(post)
+        val struct = buildPostStruct(post, isPage)
         val result = call(url, "metaWeblog.newPost", listOf(blogId, username, password, struct, publish))
         return result.asString()
     }
 
     suspend fun editPost(
         url: String, postId: String, username: String, password: String,
-        post: Post, publish: Boolean
+        post: Post, publish: Boolean, isPage: Boolean = false
     ): Boolean {
-        val struct = buildPostStruct(post)
+        val struct = buildPostStruct(post, isPage)
         call(url, "metaWeblog.editPost", listOf(postId, username, password, struct, publish))
         return true
     }
@@ -123,15 +123,43 @@ class TypechoApi(
         val result = call(url, "metaWeblog.getCategories", listOf(blogId, username, password))
         return result.asArray().map { item ->
             val s = item.asStruct()
+            // Typecho 的 mw.getCategories 里 description 放的是分类名，真正的描述在 categoryDescription；
+            // 也不返回 slug，别名只能从 htmlUrl（/category/tech/）里截。
+            val htmlUrl = (s["htmlUrl"] ?: s["html_url"])?.asString() ?: ""
             Category(
                 categoryId = (s["categoryId"] ?: s["categoryid"])?.asString() ?: "",
                 name = (s["title"] ?: s["categoryName"] ?: s["name"])?.asString() ?: "",
-                slug = (s["slug"] ?: s["categorySlug"])?.asString() ?: "",
+                slug = (s["slug"] ?: s["categorySlug"])?.asString()
+                    ?: slugFromHtmlUrl(htmlUrl),
                 parentId = (s["parentId"] ?: s["parent_id"])?.asString() ?: "0",
-                description = (s["description"] ?: s["catDescription"])?.asString() ?: "",
+                description = (s["categoryDescription"] ?: s["catDescription"])?.asString() ?: "",
+                url = htmlUrl,
                 postCount = (s["count"] ?: s["post_count"])?.asInt() ?: 0
             )
         }
+    }
+
+    /** 新建分类。wp.newCategory 的 struct 只需要 name，slug/parent/description 缺省时站点自己生成。 */
+    suspend fun newCategory(
+        url: String, blogId: String, username: String, password: String,
+        name: String, slug: String, parentId: String, description: String
+    ): String {
+        val struct = mutableMapOf<String, Any?>("name" to name)
+        if (slug.isNotBlank()) struct["slug"] = slug
+        if (description.isNotBlank()) struct["description"] = description
+        struct["parent"] = parentId.toIntOrNull() ?: 0
+        val result = call(url, "wp.newCategory", listOf(blogId, username, password, struct))
+        return result.asString()
+    }
+
+    suspend fun deleteCategory(
+        url: String, blogId: String, categoryId: String, username: String, password: String
+    ): Boolean {
+        // 传错 ID 会被 PHP  coerce 成 0，宁可在本地直接失败也别删到别的分类。
+        val mid = categoryId.toIntOrNull()
+            ?: throw XmlRpcException("分类 ID 不是数字：$categoryId")
+        call(url, "wp.deleteCategory", listOf(blogId, username, password, mid))
+        return true
     }
 
     // ── Comments (WordPress XML-RPC extensions) ──
@@ -189,7 +217,26 @@ class TypechoApi(
         url: String, blogId: String, username: String, password: String
     ): List<Post> {
         val result = call(url, "wp.getPages", listOf(blogId, username, password))
-        return result.asArray().map { parsePost(it) }
+        return result.asArray().map { parsePost(it) }.filter { it.postId.isNotBlank() }
+    }
+
+    /** 单篇页面走 wp.getPage（metaWeblog.getPost 只认文章，站点上还会 500）。 */
+    suspend fun getPage(
+        url: String, blogId: String, pageId: String, username: String, password: String
+    ): Post {
+        val id = pageId.toIntOrNull()
+            ?: throw XmlRpcException("页面 ID 不是数字：$pageId")
+        val result = call(url, "wp.getPage", listOf(blogId, id, username, password))
+        return parsePost(result)
+    }
+
+    suspend fun deletePage(
+        url: String, blogId: String, pageId: String, username: String, password: String
+    ): Boolean {
+        val id = pageId.toIntOrNull()
+            ?: throw XmlRpcException("页面 ID 不是数字：$pageId")
+        call(url, "wp.deletePage", listOf(blogId, username, password, id))
+        return true
     }
 
     // ── Media ──
@@ -223,13 +270,14 @@ class TypechoApi(
         return Post(
             postId = (s["postid"] ?: s["postId"] ?: s["post_id"] ?: s["page_id"])?.asString() ?: "",
             title = (s["title"])?.asString() ?: "",
-            content = joinBody(s["description"] ?: s["content"], s["mt_text_more"]),
+            content = joinBody(s["description"] ?: s["content"], s["mt_text_more"] ?: s["text_more"]),
             excerpt = (s["mt_excerpt"] ?: s["excerpt"])?.asString() ?: "",
             dateCreated = parseDate(s["dateCreated"] ?: s["date_created_gmt"] ?: s["pubDate"]),
             link = (s["link"] ?: s["permaLink"] ?: s["permalink"] ?: s["uri"])?.asString() ?: "",
             categories = (s["categories"] ?: s["category"])?.let { cat ->
                 when (cat) {
-                    is XmlRpcValue.ArrayValue -> cat.value.map { it.asString() }
+                    // 页面的 categories 是结构体数组，asString 取不到名字，过滤掉空串就行。
+                    is XmlRpcValue.ArrayValue -> cat.value.map { it.asString() }.filter { it.isNotBlank() }
                     is XmlRpcValue.StringValue -> listOf(cat.value)
                     else -> emptyList()
                 }
@@ -243,6 +291,7 @@ class TypechoApi(
             } ?: emptyList(),
             status = (s["post_status"] ?: s["postStatus"] ?: s["status"] ?: s["page_status"])?.asString() ?: "publish",
             author = (s["wp_author_display_name"] ?: s["author"] ?: s["dc:creator"])?.asString() ?: "",
+            slug = (s["wp_slug"] ?: s["slug"])?.asString() ?: "",
             commentCount = (s["comment_count"] ?: s["comments"])?.asInt() ?: 0,
             allowComment = (s["mt_allow_comments"] ?: s["allowComment"])?.asInt()?.let { it == 1 } ?: true,
             isMarkdown = true
@@ -289,15 +338,20 @@ class TypechoApi(
         }
     }
 
-    private fun buildPostStruct(post: Post): Map<String, Any?> {
+    /**
+     * post_type=page 让 Typecho 走 PageEdit 而不是 PostEdit，
+     * 状态键也随类型换名：mwNewPost 读的是 {$type}_status，页面必须写 page_status。
+     */
+    private fun buildPostStruct(post: Post, isPage: Boolean): Map<String, Any?> {
         val struct = mutableMapOf<String, Any?>(
             "title" to post.title,
             "description" to post.content,
             "mt_excerpt" to post.excerpt,
             "mt_keywords" to post.tags.joinToString(","),
             "categories" to post.categories,
-            "post_status" to post.status
+            (if (isPage) "page_status" else "post_status") to post.status
         )
+        if (isPage) struct["post_type"] = "page"
         if (post.link.isNotBlank()) struct["link"] = post.link
         return struct
     }
@@ -310,6 +364,17 @@ class TypechoApi(
     private fun withPage(url: String, page: Int): String =
         if (page <= 0) url
         else url + if (url.contains('?')) "&page=$page" else "?page=$page"
+
+    /** 中文别名的分类，htmlUrl 里是百分号编码，直接截出来会给用户看一串乱码。 */
+    private fun slugFromHtmlUrl(htmlUrl: String): String {
+        val raw = htmlUrl.substringAfterLast("/category/").substringBefore("/")
+        if (!raw.contains('%')) return raw
+        return try {
+            java.net.URLDecoder.decode(raw, "UTF-8")
+        } catch (_: IllegalArgumentException) {
+            raw
+        }
+    }
 
     /**
      * Typecho 把正文按 <!--more--> 拆成 description 与 mt_text_more 两段返回

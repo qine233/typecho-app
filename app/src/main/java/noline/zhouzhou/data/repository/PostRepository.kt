@@ -87,10 +87,12 @@ class PostRepository(private val api: TypechoApi) {
         }
     }
 
-    suspend fun createPost(config: SiteConfig, post: Post, publish: Boolean): Result<String> {
+    suspend fun createPost(
+        config: SiteConfig, post: Post, publish: Boolean, isPage: Boolean = false
+    ): Result<String> {
         return try {
             val id = api.newPost(
-                config.fullXmlrpcUrl, config.blogId, config.username, config.password, post, publish
+                config.fullXmlrpcUrl, config.blogId, config.username, config.password, post, publish, isPage
             )
             Result.success(id)
         } catch (e: Exception) {
@@ -98,9 +100,11 @@ class PostRepository(private val api: TypechoApi) {
         }
     }
 
-    suspend fun updatePost(config: SiteConfig, postId: String, post: Post, publish: Boolean): Result<Boolean> {
+    suspend fun updatePost(
+        config: SiteConfig, postId: String, post: Post, publish: Boolean, isPage: Boolean = false
+    ): Result<Boolean> {
         return try {
-            api.editPost(config.fullXmlrpcUrl, postId, config.username, config.password, post, publish)
+            api.editPost(config.fullXmlrpcUrl, postId, config.username, config.password, post, publish, isPage)
             Result.success(true)
         } catch (e: Exception) {
             Result.failure(e)
@@ -129,6 +133,53 @@ class PostRepository(private val api: TypechoApi) {
         return try {
             val pages = api.getPages(config.fullXmlrpcUrl, config.blogId, config.username, config.password)
             Result.success(pages)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getPage(config: SiteConfig, pageId: String): Result<Post> {
+        return try {
+            val page = api.getPage(
+                config.fullXmlrpcUrl, config.blogId, pageId, config.username, config.password
+            )
+            Result.success(page)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deletePage(config: SiteConfig, pageId: String): Result<Boolean> {
+        return try {
+            api.deletePage(
+                config.fullXmlrpcUrl, config.blogId, pageId, config.username, config.password
+            )
+            Result.success(true)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createCategory(
+        config: SiteConfig, name: String, slug: String, parentId: String, description: String
+    ): Result<String> {
+        return try {
+            val mid = api.newCategory(
+                config.fullXmlrpcUrl, config.blogId, config.username, config.password,
+                name, slug, parentId, description
+            )
+            Result.success(mid)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteCategory(config: SiteConfig, categoryId: String): Result<Boolean> {
+        return try {
+            api.deleteCategory(
+                config.fullXmlrpcUrl, config.blogId, categoryId, config.username, config.password
+            )
+            Result.success(true)
         } catch (e: Exception) {
             Result.failure(e)
         }

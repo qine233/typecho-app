@@ -22,7 +22,9 @@ import androidx.navigation.navArgument
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.ui.screens.admin.AdminScreen
+import noline.zhouzhou.ui.screens.admin.CategoriesScreen
 import noline.zhouzhou.ui.screens.admin.CommentsScreen
+import noline.zhouzhou.ui.screens.admin.PagesScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
 import noline.zhouzhou.ui.screens.editor.EditorScreen
 import noline.zhouzhou.ui.screens.health.HealthScreen
@@ -46,11 +48,13 @@ sealed class Screen(val route: String) {
     data object Admin : Screen("admin")
     data object Diary : Screen("diary")
     data object Health : Screen("health")
-    data object Editor : Screen("editor?postId={postId}") {
-        fun createRoute(postId: String? = null) =
-            if (postId != null) "editor?postId=$postId" else "editor"
+    data object Editor : Screen("editor?postId={postId}&isPage={isPage}") {
+        fun createRoute(postId: String? = null, isPage: Boolean = false) =
+            "editor?postId=${postId.orEmpty()}&isPage=$isPage"
     }
     data object Comments : Screen("comments")
+    data object Pages : Screen("admin/pages")
+    data object Categories : Screen("admin/categories")
 }
 
 private val HomeTab = TabSpec(
@@ -85,13 +89,18 @@ fun TypechoNavHost(
     val currentRoute = navBackStackEntry?.destination?.route
         ?.substringBefore("?")?.substringBefore("/{")
 
-    val isLoggedIn by appContainer.settingsRepository.isLoggedIn.collectAsState(initial = false)
+    val loggedIn = appContainer.settingsRepository.isLoggedIn
+        // null 表示 DataStore 还没发出第一个值。这时就定 startDestination 会把已登录的用户
+        // 闪到登录页（冷启动几乎必现），所以宁可先空一帧。
+        .collectAsState(initial = null).value
     val isAdmin by appContainer.settingsRepository.isAdmin.collectAsState(initial = false)
+
+    if (loggedIn == null) return
 
     val showBottomBar = currentRoute in listOf(
         Screen.Home.route, Screen.Diary.route, Screen.Health.route,
         Screen.Admin.route, Screen.Settings.route
-    ) && isLoggedIn
+    ) && loggedIn
 
     // 健康数据是站主本人的，读者不需要这个标签。
     val tabs = remember(isAdmin) {
@@ -126,7 +135,7 @@ fun TypechoNavHost(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = if (isLoggedIn) Screen.Home.createRoute() else Screen.Login.route,
+            startDestination = if (loggedIn) Screen.Home.createRoute() else Screen.Login.route,
             modifier = Modifier.padding(innerPadding),
             enterTransition = { fadeIn(animationSpec = tween(300)) + slideInHorizontally { it / 4 } },
             exitTransition = { fadeOut(animationSpec = tween(200)) },
@@ -204,7 +213,29 @@ fun TypechoNavHost(
                     onPostClick = { postId -> navController.navigate(Screen.PostDetail.createRoute(postId)) },
                     onNewPost = { navController.navigate(Screen.Editor.createRoute()) },
                     onEditPost = { postId -> navController.navigate(Screen.Editor.createRoute(postId)) },
-                    onViewComments = { navController.navigate(Screen.Comments.route) }
+                    onViewComments = { navController.navigate(Screen.Comments.route) },
+                    onViewPages = { navController.navigate(Screen.Pages.route) },
+                    onViewCategories = { navController.navigate(Screen.Categories.route) }
+                )
+            }
+
+            composable(Screen.Pages.route) {
+                PagesScreen(
+                    appContainer = appContainer,
+                    onBack = { navController.popBackStack() },
+                    onNewPage = { navController.navigate(Screen.Editor.createRoute(isPage = true)) },
+                    onEditPage = { pageId ->
+                        navController.navigate(Screen.Editor.createRoute(pageId, isPage = true))
+                    }
+                )
+            }
+
+            composable(Screen.Categories.route) {
+                CategoriesScreen(
+                    appContainer = appContainer,
+                    onBack = { navController.popBackStack() },
+                    // 首页的分类筛选就是按名字过滤已加载文章，直接复用它。
+                    onOpenCategory = { name -> switchTab(Screen.Home.createRoute(name)) }
                 )
             }
 
@@ -217,15 +248,23 @@ fun TypechoNavHost(
 
             composable(
                 route = Screen.Editor.route,
-                arguments = listOf(navArgument("postId") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                })
+                arguments = listOf(
+                    navArgument("postId") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    },
+                    navArgument("isPage") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    }
+                )
             ) { backStackEntry ->
                 val postId = backStackEntry.arguments?.getString("postId")?.takeIf { it.isNotBlank() }
+                val isPage = backStackEntry.arguments?.getBoolean("isPage") ?: false
                 EditorScreen(
                     appContainer = appContainer,
                     postId = postId,
+                    isPage = isPage,
                     onBack = { navController.popBackStack() },
                     onSaved = { navController.popBackStack() }
                 )

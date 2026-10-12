@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,9 +19,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.ui.components.NotePostCard
+import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.typechoViewModel
 import noline.zhouzhou.util.DateUtils
 
@@ -32,26 +35,24 @@ fun DiaryScreen(
 ) {
     val viewModel = typechoViewModel<DiaryViewModel>(appContainer) { DiaryViewModel(it) }
     val uiState by viewModel.uiState.collectAsState()
+    val t = LocalNoLine.current
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = t.pageBg,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("日记动态", style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold)
-                        if (uiState.totalCount > 0) {
-                            Text("${uiState.totalCount} 篇日常碎片",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(t.pageBg)
+                    .statusBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp)
+            ) {
+                Text("日记动态", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+                if (uiState.totalCount > 0) {
+                    Spacer(Modifier.height(2.dp))
+                    Text("${uiState.totalCount} 篇日常碎片", fontSize = 12.sp, color = t.textLight)
+                }
+            }
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
@@ -90,16 +91,19 @@ fun DiaryScreen(
 
 @Composable
 private fun DayHeader(day: DiaryDay) {
+    val t = LocalNoLine.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
     ) {
         Text(
             text = DateUtils.formatDiaryDay(day.timestamp),
-            style = MaterialTheme.typography.titleSmall,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
+            color = t.textSecondary
         )
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.weight(1f).height(1.dp).background(t.hairline))
     }
 }
 

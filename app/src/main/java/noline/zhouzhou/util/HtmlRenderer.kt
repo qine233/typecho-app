@@ -12,82 +12,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import noline.zhouzhou.ui.theme.LocalFontScale
+import noline.zhouzhou.ui.theme.LocalNoLine
+import noline.zhouzhou.ui.theme.NoLineTokens
+import kotlin.math.roundToInt
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun HtmlContent(
     html: String,
     modifier: Modifier = Modifier,
-    darkTheme: Boolean = false,
-    baseUrl: String? = null,
-    onHeightChanged: (Int) -> Unit = {}
+    baseUrl: String? = null
 ) {
     val fontScale = LocalFontScale.current
-
-    val cssStyle = """
-        <style>
-            * { box-sizing: border-box; }
-            body {
-                font-family: -apple-system, 'Segoe UI', 'Noto Sans SC', 'PingFang SC', sans-serif;
-                font-size: ${16 * fontScale}px;
-                line-height: 1.75;
-                color: ${if (darkTheme) "#EDE0DA" else "#201A17"};
-                background: transparent;
-                margin: 0;
-                padding: 0;
-                word-wrap: break-word;
-                overflow-wrap: break-word;
-            }
-            img { max-width: 100%; height: auto; border-radius: 8px; margin: 8px 0; }
-            a { color: ${if (darkTheme) "#FFB596" else "#8B5E3C"}; text-decoration: none; }
-            blockquote {
-                border-left: 3px solid ${if (darkTheme) "#FFB596" else "#8B5E3C"};
-                margin: 12px 0; padding: 8px 16px;
-                background: ${if (darkTheme) "rgba(255,181,150,0.08)" else "rgba(139,94,60,0.06)"};
-                border-radius: 0 8px 8px 0;
-                color: ${if (darkTheme) "#D8C2BA" else "#53433D"};
-            }
-            code {
-                background: ${if (darkTheme) "rgba(255,255,255,0.08)" else "rgba(0,0,0,0.05)"};
-                padding: 2px 6px; border-radius: 4px;
-                font-family: 'SF Mono', 'Fira Code', monospace;
-                font-size: ${14 * fontScale}px;
-            }
-            pre {
-                background: ${if (darkTheme) "#2A2320" else "#F5F0EC"};
-                padding: 16px; border-radius: 12px;
-                overflow-x: auto; margin: 12px 0;
-            }
-            pre code { background: transparent; padding: 0; }
-            h1, h2, h3, h4, h5, h6 {
-                font-weight: 600;
-                margin: 20px 0 10px;
-                color: ${if (darkTheme) "#EDE0DA" else "#201A17"};
-            }
-            h1 { font-size: ${24 * fontScale}px; }
-            h2 { font-size: ${20 * fontScale}px; }
-            h3 { font-size: ${18 * fontScale}px; }
-            hr {
-                border: none; height: 1px;
-                background: ${if (darkTheme) "#53433D" else "#D8C2BA"};
-                margin: 20px 0;
-            }
-            table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-            th, td {
-                border: 1px solid ${if (darkTheme) "#53433D" else "#D8C2BA"};
-                padding: 8px 12px; text-align: left;
-            }
-            th {
-                background: ${if (darkTheme) "#2A2320" else "#F5F0EC"};
-                font-weight: 600;
-            }
-            ul, ol { padding-left: 24px; margin: 8px 0; }
-            li { margin: 4px 0; }
-        </style>
-    """.trimIndent()
+    val tokens = LocalNoLine.current
+    val cssStyle = remember(tokens, fontScale) { articleCss(tokens, fontScale) }
 
     var webViewHeightDp by remember { mutableFloatStateOf(1f) }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
@@ -136,7 +78,7 @@ fun HtmlContent(
                     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                     $cssStyle
                 </head>
-                <body>$html</body>
+                <body><article class="post-content">$html</article></body>
                 </html>""".trimIndent()
             webView.loadDataWithBaseURL(baseUrl, fullHtml, "text/html", "UTF-8", null)
         },
@@ -148,6 +90,228 @@ fun HtmlContent(
             .fillMaxWidth()
             .height(webViewHeightDp.dp)
     )
+}
+
+/** 代码块左上角的 macOS 红绿灯，和主题 --code-dots 同一份坐标。 */
+private const val CODE_DOTS =
+    "radial-gradient(circle at 20px 17px, #fc625d 0 6px, transparent 6px)," +
+        "radial-gradient(circle at 40px 17px, #fdbc40 0 6px, transparent 6px)," +
+        "radial-gradient(circle at 60px 17px, #35cd4b 0 6px, transparent 6px)"
+
+/**
+ * 正文排版对齐主题的 article.css：17px/1.7 正文、h2–h6 前挂暖金人字标、
+ * 链接加粗压 2px 虚线、引用走强调色底、代码块保留深底红绿灯。
+ * 颜色全部从 NoLineTokens 取，不再写第二套字面量，深色模式才不会漏。
+ */
+private fun articleCss(t: NoLineTokens, fontScale: Float): String {
+    val body = (17f * fontScale)
+    return """
+        <style>
+            * { box-sizing: border-box; }
+            html, body { background: transparent; margin: 0; padding: 0; }
+            body {
+                font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", -apple-system, sans-serif;
+                color: ${css(t.textMain)};
+                -webkit-font-smoothing: antialiased;
+            }
+            .post-content {
+                font-size: ${body}px;
+                line-height: 1.7;
+                letter-spacing: .035em;
+                overflow-wrap: break-word;
+                word-break: normal;
+                padding: 0 2px;
+            }
+            .post-content > :first-child { margin-top: 0; }
+            .post-content > :last-child { margin-bottom: 0; }
+            .post-content p { margin: 1.5rem 0; }
+            .post-content blockquote, .post-content pre, .post-content table,
+            .post-content ul, .post-content ol, .post-content dl { margin: 0 0 1.5rem; }
+
+            .post-content h1, .post-content h2, .post-content h3,
+            .post-content h4, .post-content h5, .post-content h6 {
+                position: relative;
+                margin: 2.25rem 0 1rem;
+                line-height: 1.3;
+                font-weight: 700;
+                color: ${css(t.textStrong)};
+                letter-spacing: 0;
+            }
+            .post-content h1 { font-size: ${1.5 * body}px; }
+            .post-content h2 { font-size: ${1.3 * body}px; }
+            .post-content h3 { font-size: ${1.1 * body}px; }
+            .post-content h4 { font-size: ${body}px; }
+            .post-content h5 { font-size: ${0.9375 * body}px; }
+            .post-content h6 { font-size: ${0.875 * body}px; color: ${css(t.textSecondary)}; }
+            .post-content h2, .post-content h3, .post-content h4,
+            .post-content h5, .post-content h6 { padding-left: 1.2em; }
+            .post-content h2::before, .post-content h3::before, .post-content h4::before,
+            .post-content h5::before, .post-content h6::before {
+                content: "";
+                position: absolute;
+                left: 0;
+                top: 50%;
+                width: .42em;
+                height: .42em;
+                border-top: 2px solid ${css(t.headingMarker)};
+                border-right: 2px solid ${css(t.headingMarker)};
+                transform: translateY(-50%) rotate(45deg);
+            }
+
+            .post-content ul, .post-content ol {
+                list-style: none;
+                padding: 0;
+                counter-reset: noline-li;
+            }
+            .post-content li {
+                position: relative;
+                display: flex;
+                align-items: flex-start;
+                gap: .5em;
+                margin: .25rem 0;
+            }
+            .post-content ul > li::before {
+                content: "";
+                flex: 0 0 .45em;
+                width: .45em;
+                height: .45em;
+                margin-top: .62em;
+                border-radius: 50%;
+                background-color: ${css(t.accent)};
+                box-shadow: 0 0 0 .18em ${css(t.accent.copy(alpha = 0.24f))};
+            }
+            .post-content ol > li::before {
+                content: counter(noline-li);
+                counter-increment: noline-li;
+                flex: 0 0 1.45em;
+                height: 1.45em;
+                margin-top: .125em;
+                border-radius: 50%;
+                background-color: ${css(t.accent)};
+                color: ${css(t.onBrand)};
+                font-size: .8em;
+                font-weight: 700;
+                line-height: 1.45em;
+                text-align: center;
+            }
+            .post-content li > ul, .post-content li > ol { margin: .25rem 0 0; padding-left: .9em; }
+
+            .post-content blockquote {
+                padding: .75rem 1rem;
+                border-left: .25em solid ${css(t.accent)};
+                background-color: ${css(t.accentBg)};
+                color: ${css(t.textSecondary)};
+                border-radius: 0 6px 6px 0;
+            }
+            .post-content blockquote > :first-child { margin-top: 0; }
+            .post-content blockquote > :last-child { margin-bottom: 0; }
+            .post-content blockquote p { font-size: ${0.9375 * body}px; line-height: 1.7; }
+
+            .post-content a {
+                color: ${css(t.textStrong)};
+                font-weight: 700;
+                text-decoration: none;
+                border-bottom: 2px dotted ${css(t.accent)};
+            }
+            .post-content a:has(img) { border-bottom: 0; }
+            .post-content strong { color: ${css(t.textStrong)}; font-weight: 700; }
+            .post-content del { color: ${css(t.textLight)}; }
+            .post-content mark {
+                background-color: ${css(t.markBg)};
+                color: inherit;
+                padding: 0 .15em;
+                border-radius: 2px;
+            }
+            .post-content hr {
+                height: 1px;
+                margin: 2rem 0;
+                border: 0;
+                background-color: ${css(t.borderStrong)};
+            }
+
+            .post-content code {
+                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                font-size: 0.875em;
+                padding: .15em .4em;
+                background-color: ${css(t.surfaceCode)};
+                color: ${css(t.accent)};
+                border-radius: 4px;
+            }
+            .post-content pre {
+                padding: 2rem 0 0;
+                overflow: auto;
+                border-radius: 8px;
+                background-color: ${css(t.codeBg)};
+                background-image: $CODE_DOTS;
+                background-repeat: no-repeat;
+                -webkit-overflow-scrolling: touch;
+            }
+            .post-content pre code {
+                display: block;
+                padding: .75em 1.1em 1em;
+                background: none;
+                color: ${css(t.codeFg)};
+                font-size: ${0.875 * body}px;
+                font-weight: 400;
+                line-height: 1.6;
+                letter-spacing: 0;
+                border-radius: 0;
+                white-space: pre;
+            }
+
+            .post-content img {
+                display: block;
+                max-width: 90%;
+                max-height: 28rem;
+                height: auto;
+                margin: 1.5rem auto;
+                border-radius: 16px;
+            }
+            .post-content figcaption {
+                margin: -.75rem 0 1.5rem;
+                font-size: ${0.8125 * body}px;
+                line-height: 1.6;
+                letter-spacing: 0;
+                color: ${css(t.textLight)};
+                text-align: center;
+            }
+
+            .post-content table {
+                width: 100%;
+                display: block;
+                overflow-x: auto;
+                border-collapse: collapse;
+                font-size: ${0.9375 * body}px;
+            }
+            .post-content th, .post-content td {
+                padding: .5rem .75rem;
+                border: 1px solid ${css(t.borderStrong)};
+                text-align: left;
+            }
+            .post-content th {
+                background-color: ${css(t.surfaceSunken)};
+                font-weight: 700;
+                color: ${css(t.textStrong)};
+            }
+            .post-content tbody tr:nth-child(even) { background-color: ${css(t.hairline)}; }
+
+            .post-content .footnotes {
+                margin-top: 2rem;
+                padding-top: .75rem;
+                border-top: 1px solid ${css(t.cardBorder)};
+                font-size: 0.875em;
+                color: ${css(t.textSecondary)};
+            }
+            .post-content .footnote-ref { border-width: 0; }
+        </style>
+    """.trimIndent()
+}
+
+/** Compose Color → CSS rgba()，半透明令牌（accentBg、hairline）只能这么落进网页。 */
+private fun css(color: Color): String {
+    fun ch(v: Float) = (v * 255).roundToInt().coerceIn(0, 255)
+    val a = ((color.alpha * 1000).roundToInt() / 1000.0)
+    return "rgba(${ch(color.red)}, ${ch(color.green)}, ${ch(color.blue)}, $a)"
 }
 
 /**

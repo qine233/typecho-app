@@ -59,10 +59,17 @@
     <string name="admin_comments">评论管理</string>
     <string name="admin_pages">页面管理</string>
     <string name="admin_categories">分类管理</string>
+    <string name="admin_untitled">未命名</string>
     <string name="admin_new_post">写文章</string>
     <string name="admin_edit_post">编辑文章</string>
     <string name="admin_delete_post">删除文章</string>
     <string name="admin_delete_confirm">确定要删除「%1$s」吗？此操作不可撤销。</string>
+    <string name="admin_new_page">新建页面</string>
+    <string name="admin_edit_page">编辑页面</string>
+    <string name="admin_delete_page">删除页面</string>
+    <string name="admin_new_category">新建分类</string>
+    <string name="admin_delete_category">删除分类</string>
+    <string name="admin_delete_category_confirm">确定要删除分类「%1$s」吗？文章本身会保留，但不再属于这一类。</string>
     <string name="admin_post_status_publish">已发布</string>
     <string name="admin_post_status_draft">草稿</string>
     <string name="admin_post_status_private">私密</string>
@@ -76,10 +83,14 @@
 
     <!-- Editor -->
     <string name="editor_title_hint">文章标题</string>
+    <string name="editor_page_title_hint">页面标题</string>
     <string name="editor_content_hint">写下你的想法…（支持 Markdown）</string>
     <string name="editor_excerpt_hint">摘要（可选）</string>
     <string name="editor_tags_hint">标签，逗号分隔</string>
     <string name="editor_category">分类</string>
+    <string name="editor_category_name">分类名称</string>
+    <string name="editor_category_slug">别名（Slug）</string>
+    <string name="editor_category_description">描述</string>
     <string name="editor_preview">预览</string>
     <string name="editor_markdown">Markdown</string>
     <string name="editor_discard">放弃编辑？</string>
@@ -96,6 +107,7 @@
     <string name="action_confirm">确定</string>
     <string name="action_retry">重试</string>
     <string name="action_delete">删除</string>
+    <string name="action_create">创建</string>
     <string name="action_edit">编辑</string>
     <string name="action_share">分享</string>
     <string name="action_copy_link">复制链接</string>

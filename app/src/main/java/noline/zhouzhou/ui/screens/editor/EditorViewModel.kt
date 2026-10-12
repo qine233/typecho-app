@@ -45,7 +45,8 @@ data class EditorUiState(
 
 class EditorViewModel(
     private val container: AppContainer,
-    private val postId: String?
+    private val postId: String?,
+    private val isPage: Boolean = false
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(EditorUiState(postId = postId))
@@ -58,7 +59,7 @@ class EditorViewModel(
     private var commitJob: Job? = null
 
     init {
-        loadCategories()
+        if (!isPage) loadCategories()
         if (postId != null) loadPost()
     }
 
@@ -131,16 +132,23 @@ class EditorViewModel(
                 resetHistory(md)
             }
             // 优先用列表缓存，绕开站点 getPost 的 500。
-            container.postCache.get(postId!!)?.let { cached ->
-                fill(cached)
-                return@launch
+            if (!isPage) {
+                container.postCache.get(postId!!)?.let { cached ->
+                    fill(cached)
+                    return@launch
+                }
             }
             _uiState.update { it.copy(isLoading = true) }
             val config = getSiteConfig()
-            val result = container.postRepository.getPost(config, postId!!)
+            // 页面不在文章接口里，只能走 wp.getPage。
+            val result = if (isPage) {
+                container.postRepository.getPage(config, postId!!)
+            } else {
+                container.postRepository.getPost(config, postId!!)
+            }
             result.fold(
                 onSuccess = { post ->
-                    container.postCache.put(post)
+                    if (!isPage) container.postCache.put(post)
                     fill(post)
                 },
                 onFailure = { e ->
@@ -258,9 +266,9 @@ class EditorViewModel(
             )
 
             val result = if (postId != null) {
-                container.postRepository.updatePost(config, postId, post, publish)
+                container.postRepository.updatePost(config, postId, post, publish, isPage)
             } else {
-                container.postRepository.createPost(config, post, publish)
+                container.postRepository.createPost(config, post, publish, isPage)
             }
 
             result.fold(

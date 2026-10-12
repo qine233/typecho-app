@@ -27,6 +27,8 @@ import noline.zhouzhou.R
 import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.data.repository.NolineReport
 import noline.zhouzhou.ui.components.NolineGuide
+import noline.zhouzhou.ui.theme.NoLineChip
+import noline.zhouzhou.ui.theme.noLineFieldColors
 import noline.zhouzhou.ui.typechoViewModel
 import kotlinx.coroutines.delay
 
@@ -351,11 +353,11 @@ private fun DarkModeSelector(current: String, onSelect: (String) -> Unit) {
             "dark" to "深色" to Icons.Default.DarkMode
         ).forEach { (pair, icon) ->
             val (value, label) = pair
-            FilterChip(
+            NoLineChip(
+                label = label,
                 selected = current == value,
                 onClick = { onSelect(value) },
-                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-                leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                icon = icon
             )
         }
     }
@@ -421,7 +423,8 @@ private fun NolineSection(state: SettingsUiState, viewModel: SettingsViewModel) 
                         )
                     }
                 },
-                shape = MaterialTheme.shapes.medium
+                shape = MaterialTheme.shapes.medium,
+                colors = noLineFieldColors()
             )
 
             if (insecureSite) {

@@ -37,7 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import noline.zhouzhou.data.model.Category
-import noline.zhouzhou.ui.theme.LocalAccent
+import noline.zhouzhou.ui.theme.LocalNoLine
 
 /**
  * 小红书式搜索药丸：平时只是占位文字，点击原地变成输入框。
@@ -52,12 +52,14 @@ fun SearchPill(
 ) {
     var active by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
+    val t = LocalNoLine.current
 
     Row(
         modifier = modifier
             .height(34.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .background(if (active) t.cardBg else t.surfaceSoft)
+            .border(1.dp, if (active) t.accent else Color.Transparent, CircleShape)
             .padding(start = 11.dp, end = if (active) 5.dp else 11.dp)
             .then(
                 if (active) Modifier
@@ -71,7 +73,7 @@ fun SearchPill(
         Icon(
             Icons.Default.Search,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = t.textSecondary,
             modifier = Modifier.size(16.dp)
         )
         Spacer(Modifier.width(6.dp))
@@ -80,9 +82,8 @@ fun SearchPill(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodyMedium
-                    .copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(LocalAccent.current),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = t.textMain),
+                cursorBrush = SolidColor(t.accent),
                 modifier = Modifier
                     .weight(1f)
                     .padding(vertical = 7.dp),
@@ -92,7 +93,7 @@ fun SearchPill(
                             Text(
                                 placeholder,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = t.textLight
                             )
                         }
                         inner()
@@ -103,7 +104,7 @@ fun SearchPill(
                 Text(
                     text = "清除",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = t.accent,
                     modifier = Modifier
                         .clip(CircleShape)
                         .clickable { onQueryChange("") }
@@ -113,7 +114,7 @@ fun SearchPill(
             Icon(
                 Icons.Default.Close,
                 contentDescription = "收起搜索",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = t.textSecondary,
                 modifier = Modifier
                     .size(18.dp)
                     .clip(CircleShape)
@@ -127,7 +128,7 @@ fun SearchPill(
             Text(
                 text = placeholder,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = t.textLight,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -136,7 +137,7 @@ fun SearchPill(
     }
 }
 
-/** 小红书式分类筛选条：选中为实心药丸，未选中为白底细描边。 */
+/** 网站 .feed-cat：白底 1px 描边药丸 + 计数，选中态整颗翻成实心品牌色。 */
 @Composable
 fun CategoryFilterRow(
     categories: List<Category>,
@@ -151,45 +152,49 @@ fun CategoryFilterRow(
             .padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        FilterChip("全部", selected == null) { onSelect(null) }
+        FeedCatChip("全部", null, null, selected, onSelect)
         categories.forEach { cat ->
-            FilterChip(
-                text = cat.name,
-                selected = selected == cat.name,
-                onClick = { onSelect(if (selected == cat.name) null else cat.name) }
-            )
+            FeedCatChip(cat.name, cat.postCount.takeIf { it > 0 }, cat.name, selected, onSelect)
         }
     }
 }
 
 @Composable
-private fun FilterChip(
+private fun FeedCatChip(
     text: String,
-    selected: Boolean,
-    onClick: () -> Unit
+    count: Int?,
+    value: String?,
+    selected: String?,
+    onSelect: (String?) -> Unit
 ) {
-    val accent = LocalAccent.current
-    val background = if (selected) accent else MaterialTheme.colorScheme.surface
-    val content = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+    val t = LocalNoLine.current
+    val active = selected == value
 
-    Box(
+    Row(
         modifier = Modifier
+            .heightIn(min = 34.dp)
             .clip(CircleShape)
-            .background(background)
-            .then(
-                if (selected) Modifier
-                else Modifier.border(0.7.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center
+            .background(if (active) t.brand else t.cardBg)
+            .border(1.dp, if (active) t.brand else t.cardBorder, CircleShape)
+            .clickable { onSelect(if (active) null else value) }
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = text,
-            fontSize = 12.5.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = content
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (active) t.onBrand else t.textStrong
         )
+        if (count != null) {
+            Spacer(Modifier.width(5.dp))
+            // 计数压一点浓度：读者点之前最想知道的就是这个分类有没有东西
+            Text(
+                text = "$count",
+                fontSize = 11.5.sp,
+                color = if (active) t.onBrand.copy(alpha = 0.62f) else t.textStrong.copy(alpha = 0.62f)
+            )
+        }
     }
 }
 
@@ -206,7 +211,7 @@ fun WaterfallSkeleton(
         animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
         label = "pulse"
     )
-    val base = MaterialTheme.colorScheme.outlineVariant
+    val t = LocalNoLine.current
     val columnHeights = listOf(
         listOf(150.dp, 96.dp, 190.dp, 110.dp),
         listOf(110.dp, 180.dp, 92.dp, 160.dp)
@@ -227,21 +232,23 @@ fun WaterfallSkeleton(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surface)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(t.cardBg)
+                            .border(1.dp, t.cardBorder, RoundedCornerShape(12.dp))
                             .padding(10.dp)
                     ) {
                         Box(
                             Modifier
                                 .fillMaxWidth()
                                 .height(coverHeight)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(base.copy(alpha = pulse))
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(t.surfaceSunken)
+                                .background(t.accent.copy(alpha = pulse * 0.10f))
                         )
                         Spacer(Modifier.height(10.dp))
-                        SkeletonBar(base, pulse, 0.9f)
+                        SkeletonBar(t.textLight, pulse, 0.9f)
                         Spacer(Modifier.height(6.dp))
-                        SkeletonBar(base, pulse, 0.55f)
+                        SkeletonBar(t.textLight, pulse, 0.55f)
                     }
                 }
             }

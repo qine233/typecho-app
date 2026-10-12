@@ -15,6 +15,7 @@ data class Post(
     val tags: List<String> = emptyList(),
     val status: String = "publish",
     val author: String = "",
+    val slug: String = "",
     val commentCount: Int = 0,
     val allowComment: Boolean = true,
     val isMarkdown: Boolean = true
@@ -174,6 +175,7 @@ data class Category(
     val slug: String = "",
     val parentId: String = "0",
     val description: String = "",
+    val url: String = "",
     val postCount: Int = 0
 )
 

@@ -19,6 +19,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
+import noline.zhouzhou.ui.theme.noLineFieldColors
 import noline.zhouzhou.ui.typechoViewModel
 
 @Composable
@@ -86,6 +87,7 @@ fun LoginScreen(
             leadingIcon = { Icon(Icons.Default.Language, contentDescription = null) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            colors = noLineFieldColors(),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -99,6 +101,7 @@ fun LoginScreen(
             placeholder = { Text(stringResource(R.string.login_xmlrpc_path_hint)) },
             leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
             singleLine = true,
+            colors = noLineFieldColors(),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -158,6 +161,7 @@ fun LoginScreen(
             label = { Text(stringResource(R.string.login_username)) },
             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
             singleLine = true,
+            colors = noLineFieldColors(),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -172,6 +176,7 @@ fun LoginScreen(
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            colors = noLineFieldColors(),
             modifier = Modifier.fillMaxWidth()
         )
 

@@ -41,6 +41,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import noline.zhouzhou.ui.theme.LocalAccent
 import noline.zhouzhou.ui.theme.LocalAccentOn
+import noline.zhouzhou.ui.theme.LocalNoLine
 
 /** 笔记详情的配图轮播；点击图片进入全屏查看。 */
 @Composable
@@ -51,7 +52,7 @@ fun NoteImagePager(
 ) {
     if (images.isEmpty()) return
     val state = rememberPagerState(pageCount = { images.size })
-    val pageBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val pageBackground = LocalNoLine.current.coverFallback
 
     Box(modifier = modifier.background(pageBackground)) {
         HorizontalPager(
@@ -109,7 +110,7 @@ fun FullscreenImageViewer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xF0000000))
+                .background(LocalNoLine.current.lightboxBg)
         ) {
             HorizontalPager(
                 state = state,
