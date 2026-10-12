@@ -4,11 +4,13 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import noline.zhouzhou.data.model.CloudreveConfig
 import noline.zhouzhou.data.model.SiteConfig
 import noline.zhouzhou.data.remote.UrlForm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "typecho_settings")
@@ -31,6 +33,9 @@ class SettingsRepository(private val context: Context) {
         val REMEMBER_ME = booleanPreferencesKey("remember_me")
         val NOLINE_KEY = stringPreferencesKey("noline_key_cipher")
         val NOLINE_URL_FORM = stringPreferencesKey("noline_url_form")
+        val CLOUDREVE_SITE = stringPreferencesKey("cloudreve_site")
+        val CLOUDREVE_EMAIL = stringPreferencesKey("cloudreve_email")
+        val CLOUDREVE_PASSWORD = stringPreferencesKey("cloudreve_password_cipher")
     }
 
     val siteConfig: Flow<SiteConfig> = context.dataStore.data.map { prefs ->
@@ -125,6 +130,56 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setNolineUrlForm(form: UrlForm) {
         context.dataStore.edit { it[Keys.NOLINE_URL_FORM] = form.name }
+    }
+
+    // ── Cloudreve 图床 ──
+
+    val cloudreveConfig: Flow<CloudreveConfig> = context.dataStore.data
+        .map { prefs ->
+            CloudreveConfig(
+                site = prefs[Keys.CLOUDREVE_SITE].orEmpty(),
+                email = prefs[Keys.CLOUDREVE_EMAIL].orEmpty(),
+                password = prefs[Keys.CLOUDREVE_PASSWORD]?.let(secretStore::decrypt).orEmpty()
+            )
+        }
+        .flowOn(Dispatchers.IO)
+
+    val cloudreveConfigured: Flow<Boolean> = context.dataStore.data
+        .map { !(it[Keys.CLOUDREVE_SITE].isNullOrBlank()) && !(it[Keys.CLOUDREVE_PASSWORD].isNullOrBlank()) }
+
+    /** 密码留空 = 沿用已存的，和 NoLine 密钥那一节一个规矩。 */
+    suspend fun saveCloudreveConfig(site: String, email: String, password: String) {
+        val normalized = normalizeSite(site)
+        require(normalized.isNotBlank()) { "Cloudreve 地址不能为空" }
+        require(email.isNotBlank()) { "要填 Cloudreve 的登录邮箱" }
+        val stored = if (password.isBlank()) currentCloudrevePassword() else secretStore.encryptOrThrow(password)
+        require(stored.isNotBlank()) { "要填 Cloudreve 的登录密码" }
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CLOUDREVE_SITE] = normalized
+            prefs[Keys.CLOUDREVE_EMAIL] = email.trim()
+            prefs[Keys.CLOUDREVE_PASSWORD] = stored
+        }
+    }
+
+    suspend fun clearCloudreveConfig() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(Keys.CLOUDREVE_SITE)
+            prefs.remove(Keys.CLOUDREVE_EMAIL)
+            prefs.remove(Keys.CLOUDREVE_PASSWORD)
+        }
+    }
+
+    private suspend fun currentCloudrevePassword(): String =
+        context.dataStore.data.map { it[Keys.CLOUDREVE_PASSWORD]?.let(secretStore::decrypt).orEmpty() }.first()
+
+    /** 用户常把 https:// 省掉，OkHttp 拿到没协议的地址会直接抛。 */
+    private fun normalizeSite(site: String): String {
+        val trimmed = site.trim().trimEnd('/')
+        return when {
+            trimmed.isBlank() -> ""
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            else -> "https://$trimmed"
+        }
     }
 }
 

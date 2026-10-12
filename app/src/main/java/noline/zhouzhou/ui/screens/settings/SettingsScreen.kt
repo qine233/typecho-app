@@ -231,6 +231,14 @@ fun SettingsScreen(
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
+            // Cloudreve image host
+            SettingsSectionHeader("图片上传图床")
+            CloudreveSection(uiState, viewModel)
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
             // About section
             SettingsSectionHeader(stringResource(R.string.settings_about))
 
@@ -500,6 +508,199 @@ private fun NolineSection(state: SettingsUiState, viewModel: SettingsViewModel) 
                 )
             }
         }
+    }
+}
+
+/**
+ * Cloudreve 图床：地址 + 邮箱 + 密码，自检只试一次登录，不往云端写任何东西。
+ * 配好之后编辑器插图改走 Cloudreve，正文里贴永久直链。
+ */
+@Composable
+private fun CloudreveSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    var siteInput by remember { mutableStateOf(state.cloudreveSite) }
+    var emailInput by remember { mutableStateOf(state.cloudreveEmail) }
+    var passwordInput by remember { mutableStateOf("") }
+    var reveal by remember { mutableStateOf(false) }
+
+    // 清掉配置之后别把旧地址、旧密码留在框里，否则看着像没清成功。
+    LaunchedEffect(state.cloudreveConfigured) {
+        if (!state.cloudreveConfigured) {
+            siteInput = ""
+            emailInput = ""
+            passwordInput = ""
+        }
+    }
+
+    LaunchedEffect(state.cloudreveToast) {
+        if (state.cloudreveToast.isNotEmpty()) {
+            delay(2600)
+            viewModel.consumeCloudreveToast()
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Cloud,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Cloudreve v4", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (state.cloudreveConfigured) "已保存：${state.cloudrevePasswordMasked}"
+                        else "不配也能用，插图会走博客自己的附件上传",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = siteInput,
+                onValueChange = { siteInput = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Cloudreve 地址") },
+                placeholder = { Text("https://pan.example.com") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                shape = MaterialTheme.shapes.medium,
+                colors = noLineFieldColors()
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = emailInput,
+                onValueChange = { emailInput = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("登录邮箱") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                shape = MaterialTheme.shapes.medium,
+                colors = noLineFieldColors()
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = passwordInput,
+                onValueChange = { passwordInput = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text(if (state.cloudreveConfigured) "留空表示沿用已存的密码" else "登录密码") },
+                visualTransformation = if (reveal) VisualTransformation.None
+                else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    IconButton(onClick = { reveal = !reveal }) {
+                        Icon(
+                            if (reveal) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (reveal) "隐藏密码" else "显示密码",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                },
+                shape = MaterialTheme.shapes.medium,
+                colors = noLineFieldColors()
+            )
+
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledTonalButton(
+                    onClick = { viewModel.saveAndCheckCloudreve(siteInput, emailInput, passwordInput) },
+                    enabled = !state.cloudreveChecking && siteInput.isNotBlank() && emailInput.isNotBlank()
+                ) {
+                    if (state.cloudreveChecking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("正在登录…")
+                    } else {
+                        Text("保存并自检")
+                    }
+                }
+                if (state.cloudreveConfigured) {
+                    TextButton(onClick = { viewModel.clearCloudreve() }) {
+                        Text("清除", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+
+            AnimatedVisibility(visible = state.cloudreveToast.isNotEmpty()) {
+                Text(
+                    state.cloudreveToast,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
+            AnimatedVisibility(visible = state.cloudreveCheck != null) {
+                state.cloudreveCheck?.let { CloudreveCheckCard(it) }
+            }
+
+            if (state.cloudreveCheck == null && !state.cloudreveChecking) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "v4 没有「长期 API 密钥」这种东西，只能存邮箱密码、令牌一小时到期就自动重登。" +
+                        "密码用系统密钥库加密后保存在本机，站点开了登录验证码或二步验证会登不进来。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 19.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CloudreveCheckCard(check: CloudreveCheck) {
+    val passed = check is CloudreveCheck.Passed
+    val container = if (passed) MaterialTheme.colorScheme.primaryContainer
+    else MaterialTheme.colorScheme.errorContainer
+    val onContainer = if (passed) MaterialTheme.colorScheme.onPrimaryContainer
+    else MaterialTheme.colorScheme.onErrorContainer
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(container)
+            .padding(14.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (passed) Icons.Default.CheckCircle else Icons.Default.Error,
+                contentDescription = null,
+                tint = onContainer,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (passed) "已连上 Cloudreve" else "连不上 Cloudreve",
+                style = MaterialTheme.typography.titleSmall,
+                color = onContainer
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = when (check) {
+                CloudreveCheck.Passed ->
+                    "编辑器里的插图会存到 /blog/年/月/ 目录，正文贴的是游客也打得开的永久直链。"
+                is CloudreveCheck.Failed -> check.message
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = onContainer,
+            lineHeight = 19.sp
+        )
     }
 }
 

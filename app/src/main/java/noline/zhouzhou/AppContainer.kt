@@ -2,6 +2,8 @@ package noline.zhouzhou
 
 import android.app.Application
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
+import noline.zhouzhou.data.remote.CloudreveApi
 import noline.zhouzhou.data.remote.NolineApi
 import noline.zhouzhou.data.remote.TypechoApi
 import noline.zhouzhou.data.repository.*
@@ -9,6 +11,7 @@ import noline.zhouzhou.data.repository.*
 class AppContainer(val application: Application) {
     val api: TypechoApi by lazy { TypechoApi() }
     val nolineApi: NolineApi by lazy { NolineApi() }
+    val cloudreveApi: CloudreveApi by lazy { CloudreveApi() }
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(application) }
     val postRepository: PostRepository by lazy { PostRepository(api) }
     val postCache: PostCache by lazy { PostCache() }
@@ -33,6 +36,9 @@ class AppContainer(val application: Application) {
         HealthRepository(nolineApi, settingsRepository, healthLocalStore)
     }
     val updateRepository: UpdateRepository by lazy { UpdateRepository(application) }
+    val cloudreveRepository: CloudreveRepository by lazy {
+        CloudreveRepository(cloudreveApi) { settingsRepository.cloudreveConfig.first() }
+    }
 }
 
 class TypechoApplication : Application() {

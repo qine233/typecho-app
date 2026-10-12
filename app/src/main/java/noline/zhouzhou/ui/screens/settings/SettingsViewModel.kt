@@ -38,8 +38,21 @@ data class SettingsUiState(
     val nolineChecking: Boolean = false,
     val nolineReport: NolineReport? = null,
     val nolineToast: String = "",
+    val cloudreveConfigured: Boolean = false,
+    val cloudreveSite: String = "",
+    val cloudreveEmail: String = "",
+    val cloudrevePasswordMasked: String = "",
+    val cloudreveChecking: Boolean = false,
+    val cloudreveCheck: CloudreveCheck? = null,
+    val cloudreveToast: String = "",
     val update: UpdateState? = null
 )
+
+/** 设置页「图床」那张卡：试登录的两种结果。 */
+sealed interface CloudreveCheck {
+    data object Passed : CloudreveCheck
+    data class Failed(val message: String) : CloudreveCheck
+}
 
 /** 设置页「检测更新」那张卡的全部形态。 */
 sealed interface UpdateState {
@@ -102,6 +115,19 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             container.settingsRepository.nolineUrlForm.collect { form ->
                 _uiState.update { it.copy(nolineFormLabel = form.label) }
+            }
+        }
+        viewModelScope.launch {
+            container.settingsRepository.cloudreveConfig.collect { config ->
+                _uiState.update {
+                    it.copy(
+                        cloudreveConfigured = config.isComplete,
+                        cloudreveSite = config.site,
+                        cloudreveEmail = config.email,
+                        cloudrevePasswordMasked =
+                            if (config.password.isBlank()) "" else maskSecret(config.password)
+                    )
+                }
             }
         }
     }
@@ -175,6 +201,40 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun consumeNolineToast() = _uiState.update { it.copy(nolineToast = "") }
+
+    // ── Cloudreve 图床 ──
+
+    /** 密码留空 = 沿用已存的；自检只试登录，不动云端任何文件。 */
+    fun saveAndCheckCloudreve(site: String, email: String, password: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(cloudreveChecking = true, cloudreveCheck = null) }
+            val check = try {
+                container.settingsRepository.saveCloudreveConfig(site, email, password.trim())
+                // verify() 把失败包在 Result 里，不 getOrThrow 的话连不上也会显示「已连上」。
+                container.cloudreveRepository.verify().getOrThrow()
+                CloudreveCheck.Passed
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                CloudreveCheck.Failed(e.message ?: "Cloudreve 没有响应")
+            }
+            _uiState.update { it.copy(cloudreveChecking = false, cloudreveCheck = check) }
+        }
+    }
+
+    fun clearCloudreve() {
+        viewModelScope.launch {
+            val outcome = runCatching { container.settingsRepository.clearCloudreveConfig() }
+            _uiState.update {
+                it.copy(
+                    cloudreveCheck = null,
+                    cloudreveToast = if (outcome.isSuccess) "已清除图床配置" else "系统密钥库没能写入，重试一次"
+                )
+            }
+        }
+    }
+
+    fun consumeCloudreveToast() = _uiState.update { it.copy(cloudreveToast = "") }
 
     // ── 检测更新 ──
 
