@@ -1,0 +1,62 @@
+package noline.zhouzhou.data.repository
+
+import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import noline.zhouzhou.data.model.LocalDraft
+import java.io.File
+
+/**
+ * 编辑器本地稿，一篇一个文件。写的是 filesDir，不占用系统密钥库那条通道。
+ *
+ * 落盘挂在 store 自己的作用域上而不是 ViewModel 的：进程被系统回收时 viewModelScope
+ * 已经取消了，而那恰恰是最需要把稿子留下来的时刻。
+ */
+class DraftStore(private val context: Context) {
+
+    private val json = Json { ignoreUnknownKeys = true }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val dir: File get() = File(context.filesDir, "drafts")
+    private fun fileFor(key: String) = File(dir, "$key.json")
+
+    /** 空稿直接忽略：既省文件，也避免刚进编辑器就把待恢复的那份覆盖掉。 */
+    fun write(draft: LocalDraft) {
+        if (draft.isBlank) return
+        val key = draftKey(draft.postId.ifBlank { null }, draft.isPage)
+        scope.launch {
+            runCatching {
+                dir.mkdirs()
+                val tmp = File(dir, "$key.tmp")
+                tmp.writeText(json.encodeToString(LocalDraft.serializer(), draft))
+                tmp.renameTo(fileFor(key))
+            }
+        }
+    }
+
+    suspend fun load(postId: String?, isPage: Boolean): LocalDraft? = withContext(Dispatchers.IO) {
+        runCatching {
+            val file = fileFor(draftKey(postId, isPage))
+            if (!file.exists()) return@runCatching null
+            json.decodeFromString(LocalDraft.serializer(), file.readText()).takeUnless { it.isBlank }
+        }.getOrNull()
+    }
+
+    fun discard(postId: String?, isPage: Boolean) {
+        val key = draftKey(postId, isPage)
+        scope.launch { runCatching { fileFor(key).delete() } }
+    }
+}
+
+/**
+ * postId 来自导航参数，可能是 URL 里塞进来的任意串，所以只留字母数字和 -_，
+ * 免得一个 `../` 就把稿子写到 drafts 目录外面去。
+ */
+internal fun draftKey(postId: String?, isPage: Boolean): String {
+    val id = postId.orEmpty().filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+    return (if (isPage) "page_" else "post_") + if (id.isBlank()) "new" else id
+}

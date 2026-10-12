@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.model.Category
+import noline.zhouzhou.data.model.LocalDraft
 import noline.zhouzhou.data.model.Post
 import noline.zhouzhou.util.HtmlToMarkdown
 import noline.zhouzhou.util.ImageCompressor
@@ -16,7 +17,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -40,7 +43,11 @@ data class EditorUiState(
     val hasChanges: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
-    val isImmersive: Boolean = false
+    val isImmersive: Boolean = false,
+    /** 最近一次本地稿落盘的时间，0 = 还没存过。 */
+    val draftSavedAt: Long = 0L,
+    /** 非空表示发现一份和当前编辑器内容不同的本地稿，等用户决定。 */
+    val pendingDraft: LocalDraft? = null
 )
 
 class EditorViewModel(
@@ -57,10 +64,89 @@ class EditorViewModel(
     private val history = mutableListOf(Snapshot("", TextRange(0)))
     private var historyIndex = 0
     private var commitJob: Job? = null
+    private var draftJob: Job? = null
+    private var draftChecked = false
 
     init {
         if (!isPage) loadCategories()
-        if (postId != null) loadPost()
+        if (postId != null) loadPost() else offerDraft()
+        watchDrafts()
+    }
+
+    // ---- 本地自动存稿 ----
+
+    /** 编辑停顿 1.2 秒落一次盘；只在用户真改过东西之后才存，别把服务器原文当草稿存一份。 */
+    private fun watchDrafts() {
+        viewModelScope.launch {
+            _uiState.map { draftOf(it) }
+                .distinctUntilChanged()
+                .collect { draft ->
+                    val s = _uiState.value
+                    if (draft.isBlank || !s.hasChanges || s.pendingDraft != null) return@collect
+                    draftJob?.cancel()
+                    draftJob = launch {
+                        delay(1200)
+                        val stamped = draft.copy(updatedAt = System.currentTimeMillis())
+                        container.draftStore.write(stamped)
+                        _uiState.update { it.copy(draftSavedAt = stamped.updatedAt) }
+                    }
+                }
+        }
+    }
+
+    private fun draftOf(s: EditorUiState) = LocalDraft(
+        postId = postId ?: "",
+        isPage = isPage,
+        title = s.title,
+        content = s.content,
+        excerpt = s.excerpt,
+        tagsText = s.tagsText,
+        selectedCategories = s.selectedCategories,
+        status = s.status
+    )
+
+    /** 服务器版本就位之后再比本地稿：一模一样就顺手清掉，不同才弹窗问用户。 */
+    private fun offerDraft() {
+        if (draftChecked) return
+        draftChecked = true
+        viewModelScope.launch {
+            val draft = container.draftStore.load(postId, isPage) ?: return@launch
+            if (draftOf(_uiState.value) == draft.copy(updatedAt = 0L)) {
+                container.draftStore.discard(postId, isPage)
+                return@launch
+            }
+            _uiState.update { it.copy(pendingDraft = draft) }
+        }
+    }
+
+    fun restoreDraft() {
+        val draft = _uiState.value.pendingDraft ?: return
+        _uiState.update {
+            it.copy(
+                pendingDraft = null,
+                title = draft.title,
+                content = draft.content,
+                contentSelection = TextRange(draft.content.length),
+                excerpt = draft.excerpt,
+                tagsText = draft.tagsText,
+                selectedCategories = draft.selectedCategories,
+                status = draft.status,
+                hasChanges = true
+            )
+        }
+        resetHistory(draft.content)
+    }
+
+    fun dropDraft() {
+        _uiState.update { it.copy(pendingDraft = null, draftSavedAt = 0L) }
+        container.draftStore.discard(postId, isPage)
+    }
+
+    override fun onCleared() {
+        // 弹窗还开着就别写：那会儿编辑器里是服务器原文，写下去正好把本地稿盖掉。
+        val s = _uiState.value
+        if (s.pendingDraft == null && s.hasChanges) container.draftStore.write(draftOf(s))
+        super.onCleared()
     }
 
     private fun resetHistory(text: String) {
@@ -130,6 +216,7 @@ class EditorViewModel(
                     )
                 }
                 resetHistory(md)
+                offerDraft()
             }
             // 优先用列表缓存，绕开站点 getPost 的 500。
             if (!isPage) {
@@ -153,6 +240,8 @@ class EditorViewModel(
                 },
                 onFailure = { e ->
                     _uiState.update { it.copy(isLoading = false, error = e.message) }
+                    // 拉不到服务器版本时，本地稿更要露出来。
+                    offerDraft()
                 }
             )
         }
@@ -272,7 +361,13 @@ class EditorViewModel(
             }
 
             result.fold(
-                onSuccess = { _uiState.update { it.copy(isSaving = false, saveSuccess = true, hasChanges = false) } },
+                onSuccess = {
+                    // 已经交到站点上了，本地稿就没必要留着下次问一遍。
+                    container.draftStore.discard(postId, isPage)
+                    _uiState.update {
+                        it.copy(isSaving = false, saveSuccess = true, hasChanges = false, draftSavedAt = 0L)
+                    }
+                },
                 onFailure = { e -> _uiState.update { it.copy(isSaving = false, error = e.message) } }
             )
         }

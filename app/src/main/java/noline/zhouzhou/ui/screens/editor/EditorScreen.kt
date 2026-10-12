@@ -104,20 +104,52 @@ fun EditorScreen(
         )
     }
 
+    // 本地稿和编辑器内容不一致时才弹；不给点外面逃逸，避免糊里糊涂丢了稿。
+    uiState.pendingDraft?.let { draft ->
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("发现本地草稿") },
+            text = {
+                Text(
+                    buildString {
+                        append("自动保存于 ${draftStamp(draft.updatedAt)}")
+                        if (draft.content.isNotBlank()) append(" · 正文 ${draft.content.length} 字")
+                        if (postId != null) append("\n\n编辑器里现在是站点上的版本，恢复会用本地这份盖掉它。")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::restoreDraft) { Text("恢复本地稿") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dropDraft) { Text("丢弃") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             if (!uiState.isImmersive) TopAppBar(
                 title = {
-                    Text(
-                        stringResource(
-                            when {
-                                isPage && postId != null -> R.string.admin_edit_page
-                                isPage -> R.string.admin_new_page
-                                postId != null -> R.string.admin_edit_post
-                                else -> R.string.admin_new_post
-                            }
+                    Column {
+                        Text(
+                            stringResource(
+                                when {
+                                    isPage && postId != null -> R.string.admin_edit_page
+                                    isPage -> R.string.admin_new_page
+                                    postId != null -> R.string.admin_edit_post
+                                    else -> R.string.admin_new_post
+                                }
+                            )
                         )
-                    )
+                        if (uiState.draftSavedAt > 0) {
+                            Text(
+                                "已自动保存 ${draftClock(uiState.draftSavedAt)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LocalNoLine.current.textSecondary
+                            )
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = {
@@ -567,6 +599,18 @@ private fun ImmersiveEditor(
         )
         Spacer(Modifier.navigationBarsPadding().height(4.dp))
     }
+}
+
+private val draftClockFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+private val draftDayFormat = java.text.SimpleDateFormat("M月d日", java.util.Locale.getDefault())
+
+private fun draftClock(millis: Long): String = draftClockFormat.format(java.util.Date(millis))
+
+/** 顶栏里只报时刻；隔了天的本地稿要在弹窗里带上日期。 */
+private fun draftStamp(millis: Long): String {
+    val date = java.util.Date(millis)
+    return if (draftDayFormat.format(date) == draftDayFormat.format(java.util.Date())) draftClock(millis)
+    else "${draftDayFormat.format(date)} ${draftClock(millis)}"
 }
 
 @OptIn(ExperimentalLayoutApi::class)

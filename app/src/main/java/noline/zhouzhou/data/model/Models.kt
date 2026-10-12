@@ -125,6 +125,25 @@ data class CachedFeed(
     val posts: List<Post> = emptyList()
 )
 
+/**
+ * 编辑器的本地稿：进程被杀或闪退时不至于丢稿。
+ * 字段名跟 [EditorUiState] 对齐，提交成功或用户明确丢弃后就删。
+ */
+@Serializable
+data class LocalDraft(
+    val postId: String = "",
+    val isPage: Boolean = false,
+    val title: String = "",
+    val content: String = "",
+    val excerpt: String = "",
+    val tagsText: String = "",
+    val selectedCategories: List<String> = emptyList(),
+    val status: String = "publish",
+    val updatedAt: Long = 0L
+) {
+    val isBlank: Boolean get() = title.isBlank() && content.isBlank()
+}
+
 @Serializable
 data class Comment(
     val commentId: String = "",

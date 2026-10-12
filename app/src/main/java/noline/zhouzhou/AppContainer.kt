@@ -12,6 +12,7 @@ class AppContainer(val application: Application) {
     val postRepository: PostRepository by lazy { PostRepository(api) }
     val postCache: PostCache by lazy { PostCache() }
     val postCacheStore: PostCacheStore by lazy { PostCacheStore(application) }
+    val draftStore: DraftStore by lazy { DraftStore(application) }
     val interactionRepository: InteractionRepository by lazy { InteractionRepository(application) }
     val commentRepository: CommentRepository by lazy { CommentRepository(api) }
     val userRepository: UserRepository by lazy { UserRepository(api) }
