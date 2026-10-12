@@ -6,13 +6,21 @@ import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.remote.NolineException
 import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.data.repository.NolineReport
+import noline.zhouzhou.data.repository.UpdateInfo
+import noline.zhouzhou.data.repository.UpdateOutcome
 import noline.zhouzhou.data.repository.maskSecret
+import noline.zhouzhou.util.canInstallFromUnknownSources
+import noline.zhouzhou.util.installApk
+import noline.zhouzhou.util.openInstallPermissionSettings
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class SettingsUiState(
     val blogName: String = "",
@@ -29,13 +37,31 @@ data class SettingsUiState(
     val nolineFormLabel: String = "",
     val nolineChecking: Boolean = false,
     val nolineReport: NolineReport? = null,
-    val nolineToast: String = ""
+    val nolineToast: String = "",
+    val update: UpdateState? = null
 )
+
+/** 设置页「检测更新」那张卡的全部形态。 */
+sealed interface UpdateState {
+    data object Checking : UpdateState
+    data object UpToDate : UpdateState
+    data class Available(val info: UpdateInfo) : UpdateState
+    data object NoMatchingBuild : UpdateState
+    data class NeedsPermission(val info: UpdateInfo) : UpdateState
+    data class Downloading(val info: UpdateInfo, val progress: Float) : UpdateState
+    data class HandedToInstaller(val info: UpdateInfo) : UpdateState
+    data class Failed(val message: String) : UpdateState
+}
 
 class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
+    private val app get() = container.application
+
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    private var downloadJob: Job? = null
+    private var downloadedApk: File? = null
 
     init {
         viewModelScope.launch {
@@ -149,4 +175,96 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun consumeNolineToast() = _uiState.update { it.copy(nolineToast = "") }
+
+    // ── 检测更新 ──
+
+    fun checkUpdate() {
+        if (_uiState.value.update is UpdateState.Checking ||
+            _uiState.value.update is UpdateState.Downloading
+        ) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(update = UpdateState.Checking) }
+            val next = try {
+                when (val outcome = container.updateRepository.check()) {
+                    UpdateOutcome.UpToDate -> UpdateState.UpToDate
+                    UpdateOutcome.NoMatchingBuild -> UpdateState.NoMatchingBuild
+                    is UpdateOutcome.Available -> UpdateState.Available(outcome.update)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                UpdateState.Failed(e.message ?: "连不上 GitHub")
+            }
+            _uiState.update { it.copy(update = next) }
+        }
+    }
+
+    fun downloadUpdate(info: UpdateInfo) {
+        if (!app.canInstallFromUnknownSources()) {
+            _uiState.update { it.copy(update = UpdateState.NeedsPermission(info)) }
+            return
+        }
+        downloadedApk?.takeIf { it.length() > 0 }?.let { alreadyThere ->
+            handedToInstaller(info, alreadyThere)
+            return
+        }
+        downloadJob?.cancel()
+        downloadJob = viewModelScope.launch {
+            _uiState.update { it.copy(update = UpdateState.Downloading(info, 0f)) }
+            var lastPercent = -1
+            try {
+                val file = container.updateRepository.download(info) { progress ->
+                    val percent = (progress * 100).toInt()
+                    if (percent != lastPercent) {
+                        lastPercent = percent
+                        _uiState.update {
+                            val current = it.update as? UpdateState.Downloading ?: return@update it
+                            it.copy(update = current.copy(progress = percent / 100f))
+                        }
+                    }
+                }
+                downloadedApk = file
+                handedToInstaller(info, file)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(update = UpdateState.Failed(e.message ?: "下载中断")) }
+            }
+        }
+    }
+
+    /** 安装器被用户划走之后还能再拉一次，不必重新下载。 */
+    fun reinstall() {
+        val info = (_uiState.value.update as? UpdateState.HandedToInstaller)?.info ?: return
+        downloadedApk?.takeIf { it.length() > 0 }?.let { handedToInstaller(info, it) }
+            ?: downloadUpdate(info)
+    }
+
+    fun openInstallPermission() = app.openInstallPermissionSettings()
+
+    fun cancelUpdate() {
+        downloadJob?.cancel()
+        downloadJob = null
+        _uiState.update { it.copy(update = null) }
+    }
+
+    /** 从系统授权页回来接着上次的下载，不用用户再点一遍。 */
+    fun refreshPermission() {
+        val pending = _uiState.value.update as? UpdateState.NeedsPermission ?: return
+        if (app.canInstallFromUnknownSources()) downloadUpdate(pending.info)
+    }
+
+    private fun handedToInstaller(info: UpdateInfo, file: File) {
+        runCatching { app.installApk(file) }
+            .onFailure {
+                _uiState.update {
+                    it.copy(update = UpdateState.Failed("系统里没有能装 apk 的应用"))
+                }
+            }
+            .onSuccess { _uiState.update { it.copy(update = UpdateState.HandedToInstaller(info)) } }
+    }
+
+    override fun onCleared() {
+        downloadJob?.cancel()
+    }
 }

@@ -19,6 +19,7 @@ class AppContainer(val application: Application) {
     val healthRepository: HealthRepository by lazy {
         HealthRepository(nolineApi, settingsRepository, healthLocalStore)
     }
+    val updateRepository: UpdateRepository by lazy { UpdateRepository(application) }
 }
 
 class TypechoApplication : Application() {

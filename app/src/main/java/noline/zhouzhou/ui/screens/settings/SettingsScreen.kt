@@ -21,6 +21,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.BuildConfig
 import noline.zhouzhou.R
@@ -40,6 +43,16 @@ fun SettingsScreen(
 ) {
     val viewModel = typechoViewModel<SettingsViewModel>(appContainer) { SettingsViewModel(it) }
     val uiState by viewModel.uiState.collectAsState()
+
+    // 用户可能刚在系统设置里放行「安装未知应用」，回到这里就把卡住的下载接上
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshPermission()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     if (uiState.showLogoutDialog) {
         AlertDialog(
@@ -224,8 +237,10 @@ fun SettingsScreen(
             SettingsInfoItem(
                 icon = Icons.Default.Info,
                 title = stringResource(R.string.settings_version),
-                value = BuildConfig.VERSION_NAME
+                value = BuildConfig.VERSION_NAME + if (BuildConfig.DEBUG) " · debug" else ""
             )
+
+            UpdateCard(state = uiState.update, viewModel = viewModel)
 
             Spacer(Modifier.height(24.dp))
 
@@ -579,4 +594,96 @@ private fun ReportLine(label: String, value: String, good: Boolean, color: andro
             fontWeight = FontWeight.Medium
         )
     }
+}
+
+/**
+ * 检测更新：问 GitHub Releases 要最新版，有更新就下 apk 交给系统安装器。
+ * 下载走缓存目录，所以中途取消不会留下占空间的半成品。
+ */
+@Composable
+private fun UpdateCard(state: UpdateState?, viewModel: SettingsViewModel) {
+    val subtitle = when (state) {
+        null -> "当前 ${BuildConfig.VERSION_NAME} · 从 GitHub Releases 取最新版"
+        is UpdateState.Checking -> "正在问 GitHub…"
+        is UpdateState.UpToDate -> "这已经是在用的最新版"
+        is UpdateState.Available ->
+            "发现新版本 ${state.info.version} · ${formatApkSize(state.info.sizeBytes)}"
+        is UpdateState.NoMatchingBuild ->
+            "有新版本，但没挂本机这个渠道的包（debug 与正式签名不通用）"
+        is UpdateState.NeedsPermission -> "系统还没允许本应用安装自己下载的包"
+        is UpdateState.Downloading -> "下载中 ${(state.progress * 100).toInt()}%"
+        is UpdateState.HandedToInstaller -> "安装界面已拉起，在弹窗里点继续"
+        is UpdateState.Failed -> state.message
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.SystemUpdate,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("检测更新", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (state is UpdateState.Failed) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp
+                    )
+                }
+                if (state is UpdateState.Checking) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                }
+            }
+
+            AnimatedVisibility(visible = state is UpdateState.Downloading) {
+                Column {
+                    Spacer(Modifier.height(12.dp))
+                    LinearProgressIndicator(
+                        progress = { (state as? UpdateState.Downloading)?.progress ?: 0f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                when (state) {
+                    is UpdateState.Available -> FilledTonalButton(onClick = { viewModel.downloadUpdate(state.info) }) {
+                        Text("下载并安装")
+                    }
+                    is UpdateState.Downloading -> TextButton(onClick = viewModel::cancelUpdate) {
+                        Text("取消")
+                    }
+                    is UpdateState.NeedsPermission -> {
+                        FilledTonalButton(onClick = viewModel::openInstallPermission) { Text("去授权") }
+                        TextButton(onClick = { viewModel.downloadUpdate(state.info) }) { Text("我允许了") }
+                    }
+                    is UpdateState.HandedToInstaller -> TextButton(onClick = viewModel::reinstall) {
+                        Text("重新打开安装器")
+                    }
+                    else -> FilledTonalButton(
+                        onClick = viewModel::checkUpdate,
+                        enabled = state !is UpdateState.Checking
+                    ) {
+                        Text(if (state is UpdateState.UpToDate) "再查一次" else "检查更新")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatApkSize(bytes: Long): String = when {
+    bytes <= 0 -> "大小未知"
+    bytes >= 1_000_000 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+    else -> "${bytes / 1024} KB"
 }
