@@ -22,8 +22,10 @@
 
 **写作与管理**（登录账号是管理员时才会出现「管理」标签）
 - 编辑器：Markdown 正文 + 实时预览、撤销/重做、全屏沉浸写作、分类与标签、存草稿
+- 发布时间：高级选项里能挑日期和时间（新建默认此刻、编辑默认沿用原文时间），保存时原样送回站点，改老文章不会再被顺手顶到最新
+- 发布之后会把站点回传的编号认回本篇，接着改就是原地编辑，不会再插第二篇（本站小回复会被 PHP 警告吃掉，认不回来时会明确提示，详见「PHP 8.4 的 warning 会吃掉小回复」）
 - 编辑器本地自动存稿：输入停顿即落盘，进程被杀或闪退后重进会问一句要不要恢复
-- 插图：从相册选图 → 本地压缩 → `metaWeblog.newMediaObject` 上传 → 正文内联
+- 插图：从相册选图 → 本地压缩 → 上传 → 正文内联；配了 Cloudreve 就走 Cloudreve 拿永久直链，没配则走 `metaWeblog.newMediaObject`
 - 管理台：文章列表（发布/草稿/私密状态切换、删除）、评论审核（通过 / 垃圾 / 删除 / 回复）、页面列表
 - 存稿/发布/删除之后，首页、日记、管理列表当场跟着重取，不用退出 App 重进
 
@@ -43,11 +45,11 @@
 | --- | --- |
 | 语言 / UI | Kotlin 2.1、Jetpack Compose（compose-bom 2024.12.01）、Material 3 |
 | 架构 | 单 Activity + Navigation-Compose；`AppContainer` 手写依赖注入；ViewModel + StateFlow |
-| 网络 | OkHttp 4.12；XML-RPC 自己实现（`XmlRpcClient` 手写编解码，无第三方 XML-RPC 库）；NoLine 走 kotlinx.serialization |
+| 网络 | OkHttp 4.12；XML-RPC 自己实现（`XmlRpcClient` 手写编解码，无第三方 XML-RPC 库）；NoLine / Cloudreve 走 kotlinx.serialization |
 | 图片 | Coil 3 |
-| 存储 | DataStore Preferences（配置、互动状态）、Android Keystore AES-256-GCM（接口密钥）、JSON 文件（文章缓存 / 健康离线队列） |
+| 存储 | DataStore Preferences（配置、互动状态）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康离线队列） |
 | 构建 | AGP 8.7.3、Gradle 8.9 wrapper、JDK 17、minSdk 26 / target & compileSdk 35 |
-| 测试 | JUnit 4 + kotlinx.serialization，39 个单元测试（`app/src/test`） |
+| 测试 | JUnit 4 + kotlinx.serialization，76 个单元测试（`app/src/test`） |
 
 ## 目录结构
 
@@ -56,7 +58,7 @@ app/src/main/java/noline/zhouzhou/
 ├── MainActivity.kt / AppContainer.kt      # 单 Activity + 依赖容器
 ├── data/
 │   ├── model/       # Post / Comment / HealthOverview 等数据类
-│   ├── remote/      # XmlRpcClient（协议编解码）、TypechoApi（业务方法）、NolineApi（REST）
+│   ├── remote/      # XmlRpcClient（协议编解码）、TypechoApi（业务方法）、NolineApi / CloudreveApi（REST）
 │   └── repository/  # 缓存、密钥、离线队列、各业务的仓库层
 └── ui/
     ├── navigation/  # NavGraph + 自绘 TypechoTabBar
@@ -122,6 +124,17 @@ XML-RPC 是 Typecho 核心自带的（`var/Widget/XmlRpc.php`，路由 `do(actio
 
 > Typecho 的 XML-RPC 和 WordPress 有几处不一致（参数顺序、`post_status` 命名、PHP 8 的 warning 会混进响应头），`XmlRpcClient` 里都按 Typecho 的实际行为处理了。
 
+### PHP 8.4 的 warning 会吃掉小回复
+
+站上跑 PHP 8.4 时，XML-RPC 的响应体前面会多出一段固定的 228 字节 deprecation 提示（`xml_set_object()` 那条），但 `Content-Length` 头是按不含警告的纯 XML 长度算的。客户端按这个长度读，读到的 XML 就比实际少 228 字节：
+
+- 回复体超过 228 字节的没事，只是尾巴被截掉一截，`XmlRpcClient` 会先把警告前缀剥掉再解析
+- **XML 本身不足 228 字节的，一个字节都读不到** —— `metaWeblog.newPost` 只回一个数字 cid（约 140 字节）、`metaWeblog.editPost` 只回 `<boolean>1</boolean>`，正好都在这一档里
+
+所以发布成功但客户端拿不到新编号，看起来就像「同一篇发两次、多出一篇重复的」。App 侧的处理是：先认站点回传的 cid，拿不到就立刻用 `metaWeblog.getRecentPosts` 取最新一篇，标题能对上就把它当成本篇的编号（页面走 `wp.getPages`）；连这一步也认不回来时，Toast 会明说「站点没有回传编号」，提醒从列表里继续编辑而不是再点一次发布。
+
+**站点侧改了更彻底**：在宝塔的 PHP 8.4 配置里把 `display_errors` 设为 `Off`（或从 `error_reporting` 里去掉 `E_DEPRECATED`），warning 就不再进响应体，小回复立刻恢复正常长度。改完 `metaWeblog.newPost` / `editPost` 的返回值才真正读得到，不用依赖上面这层兜底。
+
 ## 健康记录：需要 NoLineApi 插件
 
 这个功能是可选的，不装插件其余功能照常。「健康」标签只对管理员账号显示，读者账号看不到；没配好接口时点进去是一页配置引导，不会白屏。前提是站点装了配套的 `NolineApi` Typecho 插件（REST 端点：`ping`、`theme`、`health`、`health/records`）。
@@ -136,6 +149,20 @@ XML-RPC 是 Typecho 核心自带的（`var/Widget/XmlRpc.php`，路由 `do(actio
 自检会真的跑一遍读写：先按 `/api/…` → `/index.php/api/…` → `/?noline_api=…` 三种 URL 形态探测出可用的一种并记住，再发一次读取和一次「必定无效」的写入探针（weight 0，服务端会直接拒掉，不落库），从而区分「密钥错」「站点关了」「只读」「路径不通」。结果卡片会用不同文案告诉你卡在哪一步，包括把服务器原话和解析报错分开显示。
 
 写记录前 App 本地先校验：日期必须是不晚于今天的 `yyyy-MM-dd`（严格解析，`2026-02-30` 这种会被拒）、体重在 20–400 kg、体脂率异常只提示不拦。
+
+## 插图图床：可选接 Cloudreve v4
+
+不配也能用，插图照旧走博客自己的 XML-RPC 附件上传。配了之后编辑器只认 Cloudreve —— 悄悄退回旧通道只会让人以为图床没坏，所以当场报错更实在。
+
+配置：设置 →「图片上传图床」→ 填 Cloudreve 地址 + 登录邮箱 + 密码 → 点「保存并自检」。自检只试一次登录，不往云端写任何东西；密码和 NoLine 密钥一样经 Keystore 加密后存本机。图片落在 `/blog/<年>/<月>/<毫秒时间戳>.jpg`（目录名在 `CloudreveRepository.ImageDir`，暂时没有界面可改），路径上缺的年月目录由 Cloudreve 顺手建出来。
+
+v4 有几个和直觉不符的地方，都是对着源码核过的：
+
+- **没有「长期 API 密钥」**。`Authorization: Bearer Cr…` 那种是请求签名，进不去文件接口；能用的只有 `POST /api/v4/session/token` 换出来的 JWT，默认一小时过期。所以 App 存的是账号密码，令牌快到期或撞上鉴权类错误码就重登一次（只重登一次，不循环）。
+- **直链只能用 `PUT /api/v4/file/source`**。它给的 `/f/<id>/<name>` 游客也能打开，服务端每次 302 到一个新鲜签名的地址，贴进文章不会失效。`POST /api/v4/file/url` 的签名地址默认一小时就过期，而且过期后照样回 HTTP 200 + `{"code":40005}` —— 用它贴图，文章里的图会在一小时后无声消失。
+- **状态码没有信息量**。连「未登录」都是 HTTP 200，成败只看响应体的 `code`，所以只有返回的不是 JSON 时才拿状态码兜底。
+- **单请求上传有上限**。`PUT /api/v4/file/content` 走的是后台「最大在线编辑大小」（默认几十 MB），App 里先把图等比压到 1600 px 再传，正常照片撞不到。
+- **站点开了登录验证码、账号开了二步验证，App 就登不进来**。这两种情况会直接说清楚原因，不会闷着转圈。
 
 ## 已知限制
 
