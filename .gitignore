@@ -12,3 +12,5 @@ local.properties
 # 签名密钥与发布产物
 *.jks
 *.keystore
+# 例外：这份 debug keystore 是故意提交的，本机与 CI 共用它，线上包才互相覆盖得了
+!keystore/debug.keystore

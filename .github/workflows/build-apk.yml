@@ -52,6 +52,6 @@ jobs:
           body: |
 
             ## 这个包
-            - debug 签名（Android 通用 debug keystore），可直接安装，和 release 版可并存
+            - debug 签名（仓库里的 `keystore/debug.keystore`，每次发布共用），可直接覆盖安装，和 release 版可并存
             - 包名 `noline.zhouzhou.debug`
             - 想要正式签名的 release 包，需要在仓库 Secrets 里配 keystore，见 README「自动构建与下载」一节

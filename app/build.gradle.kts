@@ -13,8 +13,19 @@ android {
         applicationId = "noline.zhouzhou"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
+    }
+
+    // Actions 每次 run 现生成一把调试密钥，签名互不相同会让 App 内更新被判
+    // INSTALL_FAILED_UPDATE_INCOMPATIBLE，所以固定用仓库里这份。
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

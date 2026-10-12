@@ -95,12 +95,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 应用内「检测更新」按 tag 的数字段比版本（`v1.0.1` 与 `1.0.1` 等价），并且**只认同渠道的附件**：debug 包名里带 `debug`，正式包不带。渠道不对时提示「没有本机这个渠道的包」而不是硬下——包名和签名都对不上，下回来也装不进正在跑的这份。
 
-发的是 **debug 签名**包（Android 通用 debug keystore），能直接安装，但每次覆盖安装都算同一个签名。要出正式签名的 release 包，需要自己补两步：
+签名这块有个坑值得记一下：Actions 每台 runner 都是新的，`~/.android/debug.keystore` 当场现生成，所以早期每个 Release 的 APK 签名都不一样，App 内下载完交给安装器只会得到 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。现在 `keystore/debug.keystore` 提交在仓库里，本机与 CI 都用它签（口令就是 Android 通用的 `android`/`androiddebugkey`），发布出去的包才互相覆盖得了。**装了 `v1.0.1` 及更早的包要先卸载一次**，那两版是临时密钥签的，跟这份对不上。要出正式签名的 release 包，需要自己补两步：
 
 1. 仓库 Settings → Secrets and variables → Actions 里加 `KEYSTORE_BASE64`（`base64 -w0 your.jks` 的结果）、`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`
 2. `app/build.gradle.kts` 的 `release` 里加 `signingConfig`，从上面几个 secret 读，再在工作流里加一步 `assembleRelease` 并把产物一起上传
 
-没有把 keystore 塞进工作流，是因为私钥一旦进过仓库历史就收不回来。
+仓库里那份只是 debug 密钥，作用就是让同一渠道的包能互相覆盖升级；正式签名的私钥仍然不要提交，一旦进过仓库历史就收不回来。
 
 ## 登录：直连站点自带的 XML-RPC
 
