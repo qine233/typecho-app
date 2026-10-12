@@ -27,7 +27,22 @@ class AdminViewModel(private val container: AppContainer) : ViewModel() {
     private val _uiState = MutableStateFlow(AdminUiState(isLoading = true))
     val uiState: StateFlow<AdminUiState> = _uiState.asStateFlow()
 
-    init { loadPosts() }
+    init {
+        loadPosts()
+        watchContentChanges()
+    }
+
+    /** 编辑器存完稿返回时，这一页得自己去重取。 */
+    private fun watchContentChanges() {
+        viewModelScope.launch {
+            // 删除已经在就地摘掉了，那一次回声跳过：整表重拉会把滚动位置甩回顶部。
+            container.contentChanged.collect {
+                if (skipNextChange) skipNextChange = false else fetch(reset = true, silent = true)
+            }
+        }
+    }
+
+    private var skipNextChange = false
 
     fun loadPosts() = fetch(reset = true)
 
@@ -41,7 +56,7 @@ class AdminViewModel(private val container: AppContainer) : ViewModel() {
      * 一页一页取：Typecho 的管理列表按 URL 上的 page 参数翻页，
      * 一次拉全量反而会被 PHP 告警截断，看起来就只剩「第一批」。
      */
-    private fun fetch(reset: Boolean) {
+    private fun fetch(reset: Boolean, silent: Boolean = false) {
         viewModelScope.launch {
             val loaded = if (reset) 0 else _uiState.value.posts.size
             // 已加载条数换算页码：删过文章导致列表整体前移时，这一页会重复带回旧文章，
@@ -49,7 +64,7 @@ class AdminViewModel(private val container: AppContainer) : ViewModel() {
             val page = loaded / PAGE_SIZE + 1
             _uiState.update {
                 it.copy(
-                    isLoading = if (reset) true else false,
+                    isLoading = if (reset) !silent else false,
                     isLoadingMore = !reset,
                     error = if (reset) null else it.error,
                     moreError = null
@@ -96,6 +111,9 @@ class AdminViewModel(private val container: AppContainer) : ViewModel() {
             val config = getSiteConfig()
             val result = container.postRepository.deletePost(config, postId)
             result.onSuccess {
+                skipNextChange = true
+                // 首页/日记那边还留着这一篇，靠这条事件让它们自己去重取。
+                container.notifyContentChanged()
                 _uiState.update { state ->
                     state.copy(posts = state.posts.filterNot { it.postId == postId })
                 }

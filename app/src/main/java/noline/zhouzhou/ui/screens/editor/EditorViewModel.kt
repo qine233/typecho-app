@@ -364,6 +364,8 @@ class EditorViewModel(
                 onSuccess = {
                     // 已经交到站点上了，本地稿就没必要留着下次问一遍。
                     container.draftStore.discard(postId, isPage)
+                    // 列表页的 ViewModel 不会随返回重建，得靠这条事件才会去重取。
+                    container.notifyContentChanged()
                     _uiState.update {
                         it.copy(isSaving = false, saveSuccess = true, hasChanges = false, draftSavedAt = 0L)
                     }

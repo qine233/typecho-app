@@ -31,11 +31,22 @@ class CategoriesViewModel(private val container: AppContainer) : ViewModel() {
     private val _uiState = MutableStateFlow(CategoriesUiState(isLoading = true))
     val uiState: StateFlow<CategoriesUiState> = _uiState.asStateFlow()
 
-    init { load() }
+    /** 自己发起的增删已经就地改过列表了，那一次回声跳过。 */
+    private var skipSelfReload = false
 
-    fun load() {
+    init {
+        load()
+        // 首页的分类筛选条、编辑器的分类选择器都靠这条事件跟上。
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            container.contentChanged.collect {
+                if (skipSelfReload) skipSelfReload = false else load(silent = true)
+            }
+        }
+    }
+
+    fun load(silent: Boolean = false) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = !silent, error = null) }
             val config = getSiteConfig()
             container.postRepository.getCategories(config).fold(
                 onSuccess = { cats ->
@@ -62,6 +73,8 @@ class CategoriesViewModel(private val container: AppContainer) : ViewModel() {
             container.postRepository.createCategory(config, name.trim(), slug.trim(), parentId, description.trim())
                 .fold(
                     onSuccess = {
+                        skipSelfReload = true
+                        container.notifyContentChanged()
                         _uiState.update { it.copy(isSaving = false) }
                         onCreated()
                         load()
@@ -78,6 +91,8 @@ class CategoriesViewModel(private val container: AppContainer) : ViewModel() {
             val config = getSiteConfig()
             container.postRepository.deleteCategory(config, categoryId).fold(
                 onSuccess = {
+                    skipSelfReload = true
+                    container.notifyContentChanged()
                     _uiState.update { state ->
                         state.copy(categories = state.categories.filterNot { it.categoryId == categoryId })
                     }

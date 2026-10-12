@@ -35,6 +35,14 @@ class DiaryViewModel(private val container: AppContainer) : ViewModel() {
 
     init {
         load()
+        watchContentChanges()
+    }
+
+    /** 静默重取：存完稿回到这一页时不该闪一下加载态，但内容必须跟上。 */
+    private fun watchContentChanges() {
+        viewModelScope.launch {
+            container.contentChanged.collect { fetch { it } }
+        }
     }
 
     fun load() = fetch { it.copy(isLoading = true, error = null) }

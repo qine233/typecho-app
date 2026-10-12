@@ -23,12 +23,23 @@ class PagesViewModel(private val container: AppContainer) : ViewModel() {
     private val _uiState = MutableStateFlow(PagesUiState(isLoading = true))
     val uiState: StateFlow<PagesUiState> = _uiState.asStateFlow()
 
-    init { load() }
+    /** 删除已经就地摘掉了，那一次回声跳过，别再重拉一遍。 */
+    private var skipSelfReload = false
+
+    init {
+        load()
+        // 编辑器存完页面返回时，这一页自己去重取。
+        viewModelScope.launch {
+            container.contentChanged.collect {
+                if (skipSelfReload) skipSelfReload = false else load(silent = true)
+            }
+        }
+    }
 
     /** wp.getPages 没有分页参数，一次拿全部页面。 */
-    fun load() {
+    fun load(silent: Boolean = false) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = !silent, error = null) }
             val config = getSiteConfig()
             container.postRepository.getPages(config).fold(
                 onSuccess = { pages ->
@@ -46,6 +57,8 @@ class PagesViewModel(private val container: AppContainer) : ViewModel() {
             val result = container.postRepository.deletePage(config, pageId)
             result.fold(
                 onSuccess = {
+                    skipSelfReload = true
+                    container.notifyContentChanged()
                     _uiState.update { state ->
                         state.copy(pages = state.pages.filterNot { it.postId == pageId })
                     }

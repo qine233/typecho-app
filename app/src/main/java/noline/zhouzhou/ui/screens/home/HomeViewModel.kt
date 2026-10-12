@@ -61,6 +61,17 @@ class HomeViewModel(
         loadCategories()
         restoreCache()
         loadPosts()
+        watchContentChanges()
+    }
+
+    /** 存稿/发布/删文章之后重取第一页，别让新文章等用户退出重进。 */
+    private fun watchContentChanges() {
+        viewModelScope.launch {
+            container.contentChanged.collect {
+                loadCategories()
+                fetch(reset = true, refreshing = false)
+            }
+        }
     }
 
     /** 冷启动先用上次落盘的文章渲染，首屏不等网络。 */
@@ -121,6 +132,7 @@ class HomeViewModel(
                 }
                 return@launch
             }
+            // 重取时先留着旧列表渲染，新数据到了再换，避免整页闪一下骨架屏。
             val result = container.postRepository.getRecentPosts(config, PAGE_SIZE, page)
             result.fold(
                 onSuccess = { fetched ->
