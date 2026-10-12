@@ -139,6 +139,8 @@ data class LocalDraft(
     val tagsText: String = "",
     val selectedCategories: List<String> = emptyList(),
     val status: String = "publish",
+    /** 改过的发布时间（epoch 秒）；0 是老本地稿，按没动过时间处理。 */
+    val publishAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
     val isBlank: Boolean get() = title.isBlank() && content.isBlank()
@@ -217,6 +219,16 @@ data class SiteConfig(
             val path = if (xmlrpcPath.startsWith("/")) xmlrpcPath else "/$xmlrpcPath"
             return "$base$path"
         }
+}
+
+/** 密码只在内存里是明文，落盘一律走 Keystore 密文。 */
+data class CloudreveConfig(
+    val site: String = "",
+    val email: String = "",
+    val password: String = ""
+) {
+    val isComplete: Boolean
+        get() = site.isNotBlank() && email.isNotBlank() && password.isNotBlank()
 }
 
 enum class PostStatus(val xmlRpcValue: String, val label: String) {

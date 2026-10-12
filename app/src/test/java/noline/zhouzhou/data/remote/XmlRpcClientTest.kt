@@ -104,6 +104,29 @@ class XmlRpcClientTest {
         }
     }
 
+    /** 告警前缀吃掉的正好是响应尾巴，faultString 常常是第一个不见的字段。 */
+    @Test
+    fun `parseResponse - fault truncated before faultString`() {
+        val xml = """<?xml version="1.0"?>
+            <methodResponse><fault><value><struct>
+              <member><name>faultCode</name><value><int>-32601</int></value></member>
+              <member><name>faultString</name><value><string>Invalid method na"""
+        try {
+            client.parseResponse(xml)
+            fail("Expected XmlRpcFault")
+        } catch (e: XmlRpcFault) {
+            assertEquals(-32601, e.code)
+            assertTrue("错误信息不该是空的", e.message.isNullOrBlank().not())
+        }
+    }
+
+    /** 回复比告警前缀还短时，客户端一个 XML 字节都读不到，只能安静地拿到 nil。 */
+    @Test
+    fun `parseResponse - warning-only body yields nil`() {
+        val body = "<br />\n<b>Deprecated</b>:  Function xml_set_object() is deprecated since 8.4, pr"
+        assertTrue(client.parseResponse(body) is XmlRpcValue.NilValue)
+    }
+
     @Test
     fun `parseResponse - nested struct (post)`() {
         val xml = """<?xml version="1.0"?>

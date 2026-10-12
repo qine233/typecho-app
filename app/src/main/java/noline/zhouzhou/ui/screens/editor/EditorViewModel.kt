@@ -8,6 +8,7 @@ import noline.zhouzhou.data.model.Category
 import noline.zhouzhou.data.model.LocalDraft
 import noline.zhouzhou.data.model.Post
 import noline.zhouzhou.util.HtmlToMarkdown
+import noline.zhouzhou.util.CompressedImage
 import noline.zhouzhou.util.ImageCompressor
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -47,14 +48,24 @@ data class EditorUiState(
     /** 最近一次本地稿落盘的时间，0 = 还没存过。 */
     val draftSavedAt: Long = 0L,
     /** 非空表示发现一份和当前编辑器内容不同的本地稿，等用户决定。 */
-    val pendingDraft: LocalDraft? = null
+    val pendingDraft: LocalDraft? = null,
+    /** 这篇的发布时间（epoch 秒）。保存时原样送回，别让 Typecho 自己推算成「现在」。 */
+    val publishAt: Long = System.currentTimeMillis() / 1000L,
+    /** 发布成功但站点没回传编号时的提醒，跟着 Toast 说一次就清掉。 */
+    val saveNotice: String? = null
 )
 
 class EditorViewModel(
     private val container: AppContainer,
-    private val postId: String?,
+    initialPostId: String?,
     private val isPage: Boolean = false
 ) : ViewModel() {
+
+    /**
+     * 新建成功后必须换成站点返回的 cid：否则同一个编辑器里再点一次保存，
+     * 又会走 newPost 插出第二篇。
+     */
+    private var postId: String? = initialPostId
 
     private val _uiState = MutableStateFlow(EditorUiState(postId = postId))
     val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
@@ -102,7 +113,8 @@ class EditorViewModel(
         excerpt = s.excerpt,
         tagsText = s.tagsText,
         selectedCategories = s.selectedCategories,
-        status = s.status
+        status = s.status,
+        publishAt = s.publishAt
     )
 
     /** 服务器版本就位之后再比本地稿：一模一样就顺手清掉，不同才弹窗问用户。 */
@@ -131,6 +143,7 @@ class EditorViewModel(
                 tagsText = draft.tagsText,
                 selectedCategories = draft.selectedCategories,
                 status = draft.status,
+                publishAt = draft.publishAt.takeIf { it > 0L } ?: it.publishAt,
                 hasChanges = true
             )
         }
@@ -212,7 +225,10 @@ class EditorViewModel(
                         excerpt = post.excerpt,
                         tagsText = post.tags.joinToString(", "),
                         selectedCategories = post.categories,
-                        status = post.status
+                        status = post.status,
+                        // 站点上不少老日记 created=0（接口给 1970），这种就按「现在」显示，
+                        // 让编辑器里看到的和存回去的是同一个时刻。
+                        publishAt = post.dateCreated.takeIf { it > 0L } ?: it.publishAt
                     )
                 }
                 resetHistory(md)
@@ -277,22 +293,16 @@ class EditorViewModel(
         if (_uiState.value.isUploadingImage) return
         viewModelScope.launch {
             _uiState.update { it.copy(isUploadingImage = true, error = null) }
-            val config = getSiteConfig()
-            val result = try {
+            val outcome = runCatching {
                 val image = withContext(Dispatchers.IO) {
                     ImageCompressor.compress(container.application.contentResolver, uri)
                 }
-                container.postRepository.uploadImage(
-                    config, image.name, image.mimeType, image.bytes
-                )
-            } catch (e: Exception) {
-                Result.failure<String>(e)
+                // Cloudreve 的直链末段是时间戳，拿它当 alt 只会写出一串数字。
+                uploadImage(image) to image.name.substringBeforeLast('.')
             }
-            result.fold(
-                onSuccess = { url ->
-                    val src = url.replace(" ", "%20")
-                    val alt = src.substringAfterLast('/').substringBeforeLast('.').replace(Regex("[\\[\\]()\"]"), "")
-                    insertAtCaret("![$alt]($src)")
+            outcome.fold(
+                onSuccess = { (url, alt) ->
+                    insertAtCaret("![$alt](${url.replace(" ", "%20")})")
                     _uiState.update { it.copy(isUploadingImage = false) }
                 },
                 onFailure = { e ->
@@ -303,6 +313,19 @@ class EditorViewModel(
             )
         }
     }
+
+    /**
+     * 配了 Cloudreve 就只走 Cloudreve：它给的 `/f/` 直链是永久的，也不吃 Typecho 的附件目录。
+     * 这里不悄悄退回 XML-RPC，图床坏了得让人当场看见。
+     */
+    private suspend fun uploadImage(image: CompressedImage): String =
+        if (container.cloudreveRepository.isConfigured()) {
+            container.cloudreveRepository.uploadImage(image.bytes)
+        } else {
+            container.postRepository.uploadImage(
+                getSiteConfig(), image.name, image.mimeType, image.bytes
+            ).getOrThrow()
+        }
 
     private fun insertAtCaret(snippet: String) {
         commitJob?.cancel()
@@ -322,6 +345,8 @@ class EditorViewModel(
     fun onExcerptChange(e: String) = _uiState.update { it.copy(excerpt = e, hasChanges = true) }
     fun onTagsChange(t: String) = _uiState.update { it.copy(tagsText = t, hasChanges = true) }
     fun onStatusChange(s: String) = _uiState.update { it.copy(status = s, hasChanges = true) }
+    fun onDateChange(epochSeconds: Long) =
+        _uiState.update { it.copy(publishAt = epochSeconds, hasChanges = true) }
 
     fun toggleCategory(name: String) {
         _uiState.update { state ->
@@ -343,31 +368,46 @@ class EditorViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, error = null) }
             val config = getSiteConfig()
+            val editing = postId
 
             val post = Post(
-                postId = postId ?: "",
+                postId = editing ?: "",
                 title = state.title.ifBlank { "未命名文档" },
                 content = state.content,
                 excerpt = state.excerpt,
                 tags = state.tagsText.split(",").map { it.trim() }.filter { it.isNotBlank() },
                 categories = state.selectedCategories,
-                status = if (publish) "publish" else "draft"
+                status = if (publish) "publish" else "draft",
+                dateCreated = state.publishAt
             )
 
-            val result = if (postId != null) {
-                container.postRepository.updatePost(config, postId, post, publish, isPage)
+            val result = if (editing != null) {
+                container.postRepository.updatePost(config, editing, post, publish, isPage).map { editing }
             } else {
                 container.postRepository.createPost(config, post, publish, isPage)
             }
 
             result.fold(
-                onSuccess = {
+                onSuccess = { id ->
+                    // 新建时站点会回传 cid，但本站的 PHP 警告会占掉响应头部，
+                    // 小于 228 字节的小回复（比如 just an int）会被整个吞掉，
+                    // 这时 cid 拿不到。只有拿到才认它，别让下一篇也以为还是这篇。
+                    if (editing == null && id.isNotBlank()) postId = id
                     // 已经交到站点上了，本地稿就没必要留着下次问一遍。
-                    container.draftStore.discard(postId, isPage)
+                    container.draftStore.discard(editing, isPage)
                     // 列表页的 ViewModel 不会随返回重建，得靠这条事件才会去重取。
                     container.notifyContentChanged()
                     _uiState.update {
-                        it.copy(isSaving = false, saveSuccess = true, hasChanges = false, draftSavedAt = 0L)
+                        it.copy(
+                            isSaving = false,
+                            saveSuccess = true,
+                            hasChanges = false,
+                            draftSavedAt = 0L,
+                            postId = postId,
+                            saveNotice = if (editing == null && id.isBlank())
+                                "站点没有回传这篇的编号，内容已经发上去了。请从列表里继续编辑它，别在这里重复点发布。"
+                            else null
+                        )
                     }
                 },
                 onFailure = { e -> _uiState.update { it.copy(isSaving = false, error = e.message) } }
@@ -375,7 +415,7 @@ class EditorViewModel(
         }
     }
 
-    fun clearSaveSuccess() = _uiState.update { it.copy(saveSuccess = false) }
+    fun clearSaveSuccess() = _uiState.update { it.copy(saveSuccess = false, saveNotice = null) }
 
     private suspend fun getSiteConfig(): noline.zhouzhou.data.model.SiteConfig {
         return container.settingsRepository.siteConfig.first()

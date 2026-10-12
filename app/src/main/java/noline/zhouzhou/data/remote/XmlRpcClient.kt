@@ -169,7 +169,9 @@ class XmlRpcClient {
                             if (inFault) {
                                 val faultStruct = parseValue(parser)
                                 val faultCode = faultStruct.member("faultCode").asInt()
+                                // 告警前缀会先吃掉响应尾巴，faultString 往往正是被截掉的那段。
                                 val faultString = faultStruct.member("faultString").asString()
+                                    .ifBlank { "站点拒绝了这次请求（错误码 $faultCode）" }
                                 throw XmlRpcFault(faultCode, faultString)
                             }
                         }

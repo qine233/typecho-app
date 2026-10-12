@@ -96,7 +96,41 @@ class TypechoApi(
     ): String {
         val struct = buildPostStruct(post, isPage)
         val result = call(url, "metaWeblog.newPost", listOf(blogId, username, password, struct, publish))
-        return result.asString()
+        val cid = result.asString()
+        // 站点上 newPost 的回复小到会被警告前缀整个吞掉，认不回 cid 就得靠最新一篇补一次。
+        return if (cid.isNotBlank()) cid
+        else recoverCreatedId(url, blogId, username, password, post.title, isPage)
+    }
+
+    /**
+     * PHP 8.4 的告警排在 XML 前面，Content-Length 却只按 XML 长度算，
+     * 所以不到 228 字节的小回复（newPost 只回一个数字）客户端一个字节 XML 都读不到。
+     * 文章其实已经落库，必须把 cid 认回来：认不回来，同一个编辑器再保存一次就是第二篇。
+     */
+    private suspend fun recoverCreatedId(
+        url: String, blogId: String, username: String, password: String,
+        title: String, isPage: Boolean
+    ): String {
+        val newest = if (isPage) {
+            getPages(url, blogId, username, password)
+                .maxByOrNull { it.postId.toLongOrNull() ?: 0L }
+        } else {
+            getRecentPosts(url, blogId, username, password, 1, 1).firstOrNull()
+        }
+        return newest?.takeIf { titleLooksLike(it.title, title) }?.postId ?: ""
+    }
+
+    /**
+     * 站点回传的标题是 HTML 转义过的；正文长的时候标题还会被截掉半截，
+     * 所以只要求「它是本地标题的前缀」。真失败会在上面抛异常，走不到这里。
+     */
+    private fun titleLooksLike(siteTitle: String, localTitle: String): Boolean {
+        fun normalize(s: String) = s.trim()
+            .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'")
+        val site = normalize(siteTitle)
+        val local = normalize(localTitle)
+        return site.isEmpty() || site == local || local.startsWith(site)
     }
 
     suspend fun editPost(
@@ -342,7 +376,7 @@ class TypechoApi(
      * post_type=page 让 Typecho 走 PageEdit 而不是 PostEdit，
      * 状态键也随类型换名：mwNewPost 读的是 {$type}_status，页面必须写 page_status。
      */
-    private fun buildPostStruct(post: Post, isPage: Boolean): Map<String, Any?> {
+    internal fun buildPostStruct(post: Post, isPage: Boolean): Map<String, Any?> {
         val struct = mutableMapOf<String, Any?>(
             "title" to post.title,
             "description" to post.content,
@@ -353,8 +387,21 @@ class TypechoApi(
         )
         if (isPage) struct["post_type"] = "page"
         if (post.link.isNotBlank()) struct["link"] = post.link
+        // mwNewPost 里 dateCreated 是唯一能定住 created 的入口：不给它，Typecho 就按
+        // 「有没有加载到原文、原文 created 是否 > 0」重新推算，老文章能被推成今天。
+        if (post.dateCreated > 0L) {
+            struct["dateCreated"] = XmlRpcValue.DateTimeValue(formatIso8601(post.dateCreated))
+        }
         return struct
     }
+
+    /**
+     * IXR\Date::parseIso 是定长 substr（年0-4 月4-6 日6-8 时9-11 分12-14 秒15-17），
+     * 冒号一个都不能少。发出去的墙上时间按设备时区算，和站点时区一致时正好还原成本地时刻。
+     */
+    internal fun formatIso8601(epochSeconds: Long): String =
+        java.text.SimpleDateFormat("yyyyMMdd'T'HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date(epochSeconds * 1000))
 
     /**
      * Typecho 的管理列表组件都按 request 里的 page 参数翻页（AdminTrait::initPage），

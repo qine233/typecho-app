@@ -70,7 +70,13 @@ fun EditorScreen(
 
     LaunchedEffect(uiState.saveSuccess) {
         if (uiState.saveSuccess) {
-            android.widget.Toast.makeText(context, R.string.admin_saved, android.widget.Toast.LENGTH_SHORT).show()
+            // clearSaveSuccess() 会把提醒一起抹掉，所以先取值。
+            val notice = uiState.saveNotice
+            android.widget.Toast.makeText(
+                context,
+                notice ?: context.getString(R.string.admin_saved),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
             viewModel.clearSaveSuccess()
             onSaved()
         }
@@ -290,7 +296,7 @@ fun EditorScreen(
 
                         Spacer(Modifier.height(12.dp))
 
-                        // Expandable: excerpt, tags, categories, status
+                        // Expandable: publish time, excerpt, tags, categories, status
                         var showAdvanced by remember { mutableStateOf(false) }
                         TextButton(onClick = { showAdvanced = !showAdvanced }) {
                             Icon(
@@ -304,6 +310,14 @@ fun EditorScreen(
                         AnimatedVisibility(visible = showAdvanced) {
                             Column {
                                 Spacer(Modifier.height(8.dp))
+
+                                // 发布时间：不给站点 dateCreated 它就会自己推算成「现在」
+                                Text("发布时间", style = MaterialTheme.typography.titleSmall)
+                                Spacer(Modifier.height(4.dp))
+                                PublishTimeRow(epochSeconds = uiState.publishAt,
+                                    onChange = viewModel::onDateChange)
+
+                                Spacer(Modifier.height(12.dp))
 
                                 // Excerpt
                                 OutlinedTextField(
@@ -627,4 +641,80 @@ private fun FlowRow(
         verticalArrangement = verticalArrangement,
         content = content
     )
+}
+
+private val publishDateFormat = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+private val publishTimeFormat = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+
+/**
+ * 两颗药丸分别开日历和时分盘，日期按设备时区算成 epoch 秒。
+ * 日历控件内部用 UTC 毫秒表示「哪一天」，来回都走 UTC，别掺本地时区。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PublishTimeRow(epochSeconds: Long, onChange: (Long) -> Unit) {
+    var showDate by remember { mutableStateOf(false) }
+    var showTime by remember { mutableStateOf(false) }
+    val zone = java.time.ZoneId.systemDefault()
+    val moment = java.time.Instant.ofEpochSecond(epochSeconds).atZone(zone)
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NoLineChip(label = moment.toLocalDate().format(publishDateFormat),
+            selected = false, onClick = { showDate = true }, icon = Icons.Default.DateRange)
+        NoLineChip(label = moment.toLocalTime().format(publishTimeFormat),
+            selected = false, onClick = { showTime = true }, icon = Icons.Default.Schedule)
+        if (kotlin.math.abs(System.currentTimeMillis() / 1000L - epochSeconds) > 60) {
+            TextButton(onClick = { onChange(System.currentTimeMillis() / 1000L) }) { Text("改为此刻") }
+        }
+    }
+
+    if (showDate) {
+        val dateState = rememberDatePickerState(
+            initialSelectedDateMillis = moment.toLocalDate()
+                .atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    dateState.selectedDateMillis?.let { millis ->
+                        val picked = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                        onChange(picked.atTime(moment.toLocalTime()).atZone(zone).toEpochSecond())
+                    }
+                    showDate = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDate = false }) { Text("取消") }
+            }
+        ) { DatePicker(state = dateState) }
+    }
+
+    if (showTime) {
+        val timeState = rememberTimePickerState(
+            initialHour = moment.hour,
+            initialMinute = moment.minute,
+            is24Hour = true
+        )
+        // 这版 BOM 还没有 TimePickerDialog，自己用 AlertDialog 装一个
+        AlertDialog(
+            onDismissRequest = { showTime = false },
+            title = { Text("选择时间") },
+            text = { TimePicker(state = timeState) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onChange(moment.toLocalDate().atTime(timeState.hour, timeState.minute)
+                        .atZone(zone).toEpochSecond())
+                    showTime = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTime = false }) { Text("取消") }
+            }
+        )
+    }
 }
