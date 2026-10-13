@@ -19,7 +19,9 @@ data class AdminUiState(
     val canLoadMore: Boolean = true,
     val error: String? = null,
     /** 翻页失败时不动整页列表，只在页脚给一句可重试的提示。 */
-    val moreError: String? = null
+    val moreError: String? = null,
+    /** 没配 Cloudreve 就不摆一个点进去只会报错的入口。 */
+    val driveAvailable: Boolean = false
 )
 
 class AdminViewModel(private val container: AppContainer) : ViewModel() {
@@ -30,6 +32,11 @@ class AdminViewModel(private val container: AppContainer) : ViewModel() {
     init {
         loadPosts()
         watchContentChanges()
+        viewModelScope.launch {
+            container.settingsRepository.cloudreveConfigured.collect { configured ->
+                _uiState.update { it.copy(driveAvailable = configured) }
+            }
+        }
     }
 
     /** 编辑器存完稿返回时，这一页得自己去重取。 */

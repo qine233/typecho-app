@@ -320,7 +320,7 @@ class EditorViewModel(
      */
     private suspend fun uploadImage(image: CompressedImage): String =
         if (container.cloudreveRepository.isConfigured()) {
-            container.cloudreveRepository.uploadImage(image.bytes)
+            container.cloudreveRepository.uploadImage(image.bytes, image.mimeType)
         } else {
             container.postRepository.uploadImage(
                 getSiteConfig(), image.name, image.mimeType, image.bytes

@@ -27,7 +27,9 @@ class CloudreveApiTest {
         """{"code":0,"data":{"user":{"id":"1"},"token":{"access_token":"T1",""" +
             """"refresh_token":"R1","access_expires":"2099-01-01T00:00:00+08:00"}}}"""
 
-    private val fileOk = """{"code":0,"data":{"id":"Ab1","name":"1.jpg","path":"cloudreve://my/blog/2026/10/1.jpg"}}"""
+    private val localSessionOk =
+        """{"code":0,"data":{"session_id":"S1","chunk_size":0,"callback_secret":"sec1",""" +
+            """"storage_policy":{"type":"local"}}}"""
 
     private val sourceOk =
         """{"code":0,"data":[{"link":"https://pan.work/f/Vx9/1.jpg","file_url":"https://pan.work/f/Vx9/1.jpg?sign=x"}]}"""
@@ -40,8 +42,8 @@ class CloudreveApiTest {
     @Test
     fun `builds v4 api urls`() {
         assertEquals(
-            "https://pan.work/api/v4/file/content",
-            CloudreveApi.apiUrl("https://pan.work/", "file/content")
+            "https://pan.work/api/v4/file/upload",
+            CloudreveApi.apiUrl("https://pan.work/", "file/upload")
         )
         assertEquals("https://pan.work/api/v4/session/token", CloudreveApi.apiUrl("https://pan.work", "session/token"))
     }
@@ -113,22 +115,78 @@ class CloudreveApiTest {
     }
 
     @Test
-    fun `upload puts raw bytes to the encoded uri with the bearer token`() {
-        val transport = Fake { ok(fileOk) }
+    fun `local upload opens a session then posts the whole file as one chunk`() {
+        val transport = Fake { request ->
+            when {
+                request.method == "PUT" -> ok(localSessionOk)
+                else -> ok("""{"code":0,"data":null}""")
+            }
+        }
         val bytes = byteArrayOf(1, 2, 3, 4)
-        val node = runBlocking {
-            CloudreveApi(transport).upload("https://pan.work", "T1", "cloudreve://my/blog/2026/10/1.jpg", bytes)
+        runBlocking {
+            CloudreveApi(transport)
+                .uploadFile("https://pan.work", "T1", "cloudreve://my/blog/2026/10/1.jpg", bytes, "image/jpeg")
         }
 
-        assertEquals("Ab1", node.id)
-        val request = transport.calls.single()
-        assertEquals("PUT", request.method)
+        val session = transport.calls[0]
+        assertEquals("PUT", session.method)
         assertEquals(
-            "https://pan.work/api/v4/file/content?uri=cloudreve%3A%2F%2Fmy%2Fblog%2F2026%2F10%2F1.jpg",
-            request.url
+            "https://pan.work/api/v4/file/upload?uri=cloudreve%3A%2F%2Fmy%2Fblog%2F2026%2F10%2F1.jpg",
+            session.url
         )
-        assertContentEquals(bytes, request.bytes)
-        assertEquals("Bearer T1", request.headers["Authorization"])
+        assertTrue(session.body!!, session.body!!.contains("""{"uri":"cloudreve://my/blog/2026/10/1.jpg","size":4,"mime_type":"image/jpeg"}"""))
+
+        val chunk = transport.calls[1]
+        assertEquals("POST", chunk.method)
+        assertEquals("https://pan.work/api/v4/file/upload/S1/0", chunk.url)
+        assertEquals(bytes.toList(), chunk.bytes?.toList())
+        assertEquals("Bearer T1", chunk.headers["Authorization"])
+        // 本机策略不需要回调收尾
+        assertEquals(2, transport.calls.size)
+    }
+
+    @Test
+    fun `remote upload signs the range and never sends bytes to the master`() {
+        val transport = Fake { request ->
+            when {
+                request.url.startsWith("https://graph.work") -> CloudreveRaw(200, """{"size":2}""")
+                request.method == "PUT" && request.url.contains("file/upload") ->
+                    ok("""{"code":0,"data":{"session_id":"S1","chunk_size":2,"upload_urls":["https://graph.work/u1"],"callback_secret":"sec1","storage_policy":{"type":"onedrive"}}}""")
+                else -> ok("""{"code":0,"data":null}""")
+            }
+        }
+        runBlocking {
+            CloudreveApi(transport).uploadFile("https://pan.work", "T1", "cloudreve://my/a.jpg", byteArrayOf(1, 2, 3), "image/jpeg")
+        }
+
+        val ranges = transport.calls.filter { it.url.startsWith("https://graph.work") }.map { it.headers["Content-Range"] }
+        assertEquals(listOf("bytes 0-1/3", "bytes 2-2/3"), ranges)
+        // 预签名地址只带 Content-Range，Cloudreve 的 Bearer 一贴上去存储端就拒收
+        val remote = transport.calls.first { it.url.startsWith("https://graph.work") }
+        assertFalse(remote.headers.containsKey("Authorization"))
+        assertEquals(
+            "https://pan.work/api/v4/callback/onedrive/S1/sec1",
+            transport.calls.last().url
+        )
+    }
+
+    @Test
+    fun `a broken session is cancelled instead of leaving a placeholder behind`() {
+        val transport = Fake { request ->
+            when {
+                request.method == "PUT" -> ok(localSessionOk)
+                request.method == "POST" -> failure(50004, "io failed")
+                else -> ok("""{"code":0,"data":null}""")
+            }
+        }
+        val e = errorOf(transport) {
+            CloudreveApi(transport).uploadFile("https://pan.work", "T1", "cloudreve://my/a.jpg", byteArrayOf(1), "image/jpeg")
+        }
+
+        assertEquals(CloudreveIssue.IoFailed, e.issue)
+        val cancel = transport.calls.last()
+        assertEquals("DELETE", cancel.method)
+        assertTrue(cancel.body!!, cancel.body!!.contains("\"id\":\"S1\""))
     }
 
     @Test
@@ -151,6 +209,117 @@ class CloudreveApiTest {
         }
     }
 
+    // ── 网盘浏览与整理 ──
+
+    /**
+     * 实测回来的时间戳小数位长度不固定（3 位到 9 位都有），照抄站点返回。
+     * 一整块原始字符串：片段拼接时，行尾的引号会和 `"""` 粘成四个，编译器会把片段截断。
+     */
+    private val listingOk =
+        """{"code":0,"data":{"files":[
+            {"type":1,"id":"a1","name":"image","size":0,"path":"cloudreve://my/image",
+             "updated_at":"2025-06-12T12:09:58.937586723+08:00"},
+            {"type":0,"id":"b2","name":"mimi.png","size":1177657,"shared":true,"path":"cloudreve://my/image/mimi.png",
+             "created_at":"2025-06-18T02:11:10.391070503+08:00"}
+            ],"parent":{"type":1,"id":"anCK","name":"image","path":"cloudreve://my/image"},
+            "pagination":{"page":0,"page_size":100,"next_token":"eyJpZCI6ImIyIn0=","is_cursor":true}}}"""
+
+    @Test
+    fun `listing asks for a whole page by name and keeps folder and file apart`() {
+        val transport = Fake { ok(listingOk) }
+        val page = runBlocking { CloudreveApi(transport).list("https://pan.work", "T1", "cloudreve://my/image") }
+
+        val url = transport.calls.single().url
+        assertTrue(url, url.startsWith("https://pan.work/api/v4/file?uri=cloudreve%3A%2F%2Fmy%2Fimage"))
+        assertTrue(url, url.contains("page_size=100"))
+        assertTrue(url, url.contains("order_by=name"))
+        assertFalse(url, url.contains("next_page_token"))
+
+        assertEquals(2, page.files.size)
+        assertTrue(page.files[0].isFolder)
+        assertFalse(page.files[1].isFolder)
+        assertEquals(1177657L, page.files[1].size)
+        assertEquals("cloudreve://my/image", page.parent?.path)
+        assertEquals("eyJpZCI6ImIyIn0=", page.pagination?.nextToken)
+    }
+
+    @Test
+    fun `the cursor is url encoded on the way back`() {
+        val transport = Fake { ok(listingOk) }
+        runBlocking {
+            CloudreveApi(transport).list("https://pan.work", "T1", "cloudreve://my", nextToken = "eyJpZCI6ImIyIn0=")
+        }
+        assertTrue(
+            transport.calls.single().url,
+            transport.calls.single().url.endsWith("next_page_token=eyJpZCI6ImIyIn0%3D")
+        )
+    }
+
+    /** 翻到底时 pagination 里根本没有 next_token 这个键，不是空串。 */
+    @Test
+    fun `a finished page has no cursor left`() {
+        val transport = Fake {
+            ok("""{"code":0,"data":{"files":[],"pagination":{"page":0,"page_size":100,"is_cursor":true}}}""")
+        }
+        val page = runBlocking { CloudreveApi(transport).list("https://p", "T1", "cloudreve://my") }
+
+        assertTrue(page.files.isEmpty())
+        assertEquals("", page.pagination?.nextToken)
+    }
+
+    @Test
+    fun `drive mutations post the bodies v4 expects`() {
+        val transport = Fake { ok("""{"code":0,"data":null}""") }
+        val api = CloudreveApi(transport)
+        runBlocking {
+            api.createFolder("https://p", "T1", "cloudreve://my/blog/2026")
+            api.rename("https://p", "T1", "cloudreve://my/a.jpg", "b.jpg")
+            api.move("https://p", "T1", listOf("cloudreve://my/a.jpg"), "cloudreve://my/blog")
+            api.softDelete("https://p", "T1", listOf("cloudreve://my/a.jpg", "cloudreve://my/b.jpg"))
+        }
+
+        val create = transport.calls[0]
+        assertEquals("POST", create.method)
+        assertEquals("https://p/api/v4/file/create", create.url)
+        assertEquals("""{"uri":"cloudreve://my/blog/2026","type":"folder"}""", create.body)
+
+        val rename = transport.calls[1]
+        assertEquals("https://p/api/v4/file/rename", rename.url)
+        assertEquals("""{"uri":"cloudreve://my/a.jpg","new_name":"b.jpg"}""", rename.body)
+
+        val move = transport.calls[2]
+        assertEquals("https://p/api/v4/file/move", move.url)
+        assertEquals("""{"uris":["cloudreve://my/a.jpg"],"dst":"cloudreve://my/blog"}""", move.body)
+
+        val delete = transport.calls[3]
+        assertEquals("DELETE", delete.method)
+        assertEquals("https://p/api/v4/file", delete.url)
+        assertEquals("""{"uris":["cloudreve://my/a.jpg","cloudreve://my/b.jpg"]}""", delete.body)
+    }
+
+    /** 4.14.1 上容量只有 user/capacity 这条路，user 与 user/quota 都是 404。 */
+    @Test
+    fun `capacity reads the users own bookkeeping`() {
+        val transport = Fake { ok("""{"code":0,"data":{"total":5497558138880,"used":79958973997}}""") }
+        val capacity = runBlocking { CloudreveApi(transport).capacity("https://p", "T1") }
+
+        assertEquals("https://p/api/v4/user/capacity", transport.calls.single().url)
+        assertEquals("GET", transport.calls.single().method)
+        assertEquals(5497558138880L, capacity.total)
+        assertEquals(79958973997L, capacity.used)
+        assertEquals(0.0145f, capacity.usedFraction, 0.0001f)
+    }
+
+    /** total 不是正数时（无限配额、老版本、字段缺失）没有上限可言，别算出「剩 -1 B」。 */
+    @Test
+    fun `a total that is not positive has no usable fraction`() {
+        val transport = Fake { ok("""{"code":0,"data":{"total":-1,"used":123}}""") }
+        val capacity = runBlocking { CloudreveApi(transport).capacity("https://p", "T1") }
+
+        assertFalse(capacity.hasQuota)
+        assertEquals(0f, capacity.usedFraction, 0f)
+    }
+
     /** 站点没装 Cloudreve / 地址填成博客本体时，回来的是 HTML。 */
     @Test
     fun `non json body falls back to the http status`() {
@@ -162,9 +331,5 @@ class CloudreveApiTest {
         val e = errorOf(weird) { CloudreveApi(weird).login("https://p", "a@b.c", "pw") }
         assertEquals(CloudreveIssue.Unknown, e.issue)
         assertTrue(e.message.contains("HTTP 200"))
-    }
-
-    private fun assertContentEquals(expected: ByteArray, actual: ByteArray?) {
-        assertTrue("bytes forwarded", actual != null && actual.contentEquals(expected))
     }
 }

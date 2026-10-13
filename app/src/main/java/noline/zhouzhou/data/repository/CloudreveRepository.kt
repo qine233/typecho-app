@@ -2,8 +2,11 @@ package noline.zhouzhou.data.repository
 
 import noline.zhouzhou.data.model.CloudreveConfig
 import noline.zhouzhou.data.remote.CloudreveApi
+import noline.zhouzhou.data.remote.CloudreveCapacity
 import noline.zhouzhou.data.remote.CloudreveException
+import noline.zhouzhou.data.remote.CloudreveFileNode
 import noline.zhouzhou.data.remote.CloudreveIssue
+import noline.zhouzhou.data.remote.CloudreveListing
 import noline.zhouzhou.data.remote.isAuthFailure
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,12 +28,12 @@ class CloudreveRepository(
     private var tokenExpiresAt: Long = 0L
 
     /** @return 贴进正文的永久直链。 */
-    suspend fun uploadImage(bytes: ByteArray): String {
+    suspend fun uploadImage(bytes: ByteArray, mimeType: String = "image/jpeg"): String {
         val config = requireConfig()
         return withToken(config) { token ->
             // 路径上的年月目录不存在时 Cloudreve 会自己建，不用先创建。
             val uri = targetUri(LocalDateTime.now())
-            api.upload(config.site, token, uri, bytes)
+            api.uploadFile(config.site, token, uri, bytes, mimeType)
             api.directLink(config.site, token, uri)
         }
     }
@@ -40,6 +43,57 @@ class CloudreveRepository(
         val config = requireConfig()
         loginMutex.withLock { login(config) }
         Unit
+    }
+
+    // ── 网盘管理 ──
+    // 这一组都是「用户点了才有反馈」的操作，统一包成 Result 交给界面层的错误条显示，
+    // 免得每个调用点各自 try/catch。
+
+    /**
+     * Cloudreve 记账的容量。失败就吞掉 —— 这只是页面上的一行说明，不该拦住列目录。
+     */
+    suspend fun capacity(): CloudreveCapacity? = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.capacity(config.site, it) }
+    }.getOrNull()
+
+    suspend fun list(dirUri: String, nextToken: String? = null): Result<CloudreveListing> =
+        runCatching {
+            val config = requireConfig()
+            withToken(config) { api.list(config.site, it, dirUri, nextToken = nextToken) }
+        }
+
+    /** 在 dirUri 下只列子目录，给「移动到」挑目标用。 */
+    suspend fun listFolders(dirUri: String): Result<List<CloudreveFileNode>> =
+        list(dirUri).map { page -> page.files.filter { it.isFolder } }
+
+    suspend fun createFolder(dirUri: String, name: String): Result<Unit> =
+        runCatching {
+            val config = requireConfig()
+            withToken(config) { api.createFolder(config.site, it, childUri(dirUri, name)) }
+        }
+
+    suspend fun rename(node: CloudreveFileNode, newName: String): Result<Unit> = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.rename(config.site, it, node.path, newName) }
+    }
+
+    /** 移动回来后原目录的游标就作废了，调用方重新拉第一页。 */
+    suspend fun move(node: CloudreveFileNode, dstDirUri: String): Result<Unit> = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.move(config.site, it, listOf(node.path), dstDirUri) }
+    }
+
+    /** 只丢进回收站；Cloudreve 默认保留 7 天，网站后台还能捞回来。 */
+    suspend fun softDelete(node: CloudreveFileNode): Result<Unit> = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.softDelete(config.site, it, listOf(node.path)) }
+    }
+
+    /** 给已有文件生成永久直链（`/f/<id>/<名称>`），游客可访问，贴进文章不会失效。 */
+    suspend fun directLink(node: CloudreveFileNode): Result<String> = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.directLink(config.site, it, node.path) }
     }
 
     suspend fun isConfigured(): Boolean = configOf().isComplete
@@ -89,5 +143,8 @@ class CloudreveRepository(
             val stamp = now.toInstant(ZoneOffset.UTC).toEpochMilli()
             return "cloudreve://my/$ImageDir/${now.year}/$month/$stamp.jpg"
         }
+
+        /** 网盘里拼子路径：根目录是 cloudreve://my，网站给的子路径可能带尾斜杠，先抹掉。 */
+        fun childUri(dirUri: String, name: String): String = dirUri.trimEnd('/') + "/" + name
     }
 }

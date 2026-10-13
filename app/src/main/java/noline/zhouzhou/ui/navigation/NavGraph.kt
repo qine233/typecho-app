@@ -26,6 +26,7 @@ import noline.zhouzhou.ui.screens.admin.CategoriesScreen
 import noline.zhouzhou.ui.screens.admin.CommentsScreen
 import noline.zhouzhou.ui.screens.admin.PagesScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
+import noline.zhouzhou.ui.screens.drive.DriveScreen
 import noline.zhouzhou.ui.screens.editor.EditorScreen
 import noline.zhouzhou.ui.screens.health.HealthScreen
 import noline.zhouzhou.ui.screens.home.HomeScreen
@@ -55,6 +56,7 @@ sealed class Screen(val route: String) {
     data object Comments : Screen("comments")
     data object Pages : Screen("admin/pages")
     data object Categories : Screen("admin/categories")
+    data object Drive : Screen("cloudreve/drive")
 }
 
 private val HomeTab = TabSpec(
@@ -215,7 +217,15 @@ fun TypechoNavHost(
                     onEditPost = { postId -> navController.navigate(Screen.Editor.createRoute(postId)) },
                     onViewComments = { navController.navigate(Screen.Comments.route) },
                     onViewPages = { navController.navigate(Screen.Pages.route) },
-                    onViewCategories = { navController.navigate(Screen.Categories.route) }
+                    onViewCategories = { navController.navigate(Screen.Categories.route) },
+                    onViewDrive = { navController.navigate(Screen.Drive.route) }
+                )
+            }
+
+            composable(Screen.Drive.route) {
+                DriveScreen(
+                    appContainer = appContainer,
+                    onBack = { navController.popBackStack() }
                 )
             }
 

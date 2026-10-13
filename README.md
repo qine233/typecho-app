@@ -27,6 +27,7 @@
 - 编辑器本地自动存稿：输入停顿即落盘，进程被杀或闪退后重进会问一句要不要恢复
 - 插图：从相册选图 → 本地压缩 → 上传 → 正文内联；配了 Cloudreve 就走 Cloudreve 拿永久直链，没配则走 `metaWeblog.newMediaObject`
 - 管理台：文章列表（发布/草稿/私密状态切换、删除）、评论审核（通过 / 垃圾 / 删除 / 回复）、页面列表
+- 网盘：配了 Cloudreve 就能在「管理 → 网盘」里浏览目录、看已用容量、建文件夹、重命名、移动、丢回收站，并给任意文件手动生成永久直链（详见「网盘管理」）
 - 存稿/发布/删除之后，首页、日记、管理列表当场跟着重取，不用退出 App 重进
 
 **健康记录**（可选，需要站点装 NoLineApi 插件，见下）
@@ -49,7 +50,7 @@
 | 图片 | Coil 3 |
 | 存储 | DataStore Preferences（配置、互动状态）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康离线队列） |
 | 构建 | AGP 8.7.3、Gradle 8.9 wrapper、JDK 17、minSdk 26 / target & compileSdk 35 |
-| 测试 | JUnit 4 + kotlinx.serialization，76 个单元测试（`app/src/test`） |
+| 测试 | JUnit 4 + kotlinx.serialization，95 个单元测试（`app/src/test`） |
 
 ## 目录结构
 
@@ -161,8 +162,18 @@ v4 有几个和直觉不符的地方，都是对着源码核过的：
 - **没有「长期 API 密钥」**。`Authorization: Bearer Cr…` 那种是请求签名，进不去文件接口；能用的只有 `POST /api/v4/session/token` 换出来的 JWT，默认一小时过期。所以 App 存的是账号密码，令牌快到期或撞上鉴权类错误码就重登一次（只重登一次，不循环）。
 - **直链只能用 `PUT /api/v4/file/source`**。它给的 `/f/<id>/<name>` 游客也能打开，服务端每次 302 到一个新鲜签名的地址，贴进文章不会失效。`POST /api/v4/file/url` 的签名地址默认一小时就过期，而且过期后照样回 HTTP 200 + `{"code":40005}` —— 用它贴图，文章里的图会在一小时后无声消失。
 - **状态码没有信息量**。连「未登录」都是 HTTP 200，成败只看响应体的 `code`，所以只有返回的不是 JSON 时才拿状态码兜底。
-- **单请求上传有上限**。`PUT /api/v4/file/content` 走的是后台「最大在线编辑大小」（默认几十 MB），App 里先把图等比压到 1600 px 再传，正常照片撞不到。
+- **`PUT /api/v4/file/content` 不是上传口**。它是在线编辑器改文件内容用的，拿它上传会撞上 `{"code":50004}`。真正的上传一定是三步：`PUT /api/v4/file/upload?uri=…` 建会话 → 按会话给的 `chunk_size` 分片送（本机/中转策略 `POST /file/upload/<session>/<index>`，裸字节且 `Content-Length` 必须正好等于这一片的长度；OneDrive 这类直传策略则带 `Content-Range` PUT 到会话给的预签名地址，传完再 `POST /callback/onedrive/<session>/<secret>` 通知主机收尾）→ 收尾由主机把占位文件转正。分片中途失败，App 会 `DELETE /file/upload` 把会话连同占位文件一起撤掉，不在网盘里留残骸。
+- **`{"code":-1}` 是「服务端自己吞了原因」**。Cloudreve 把没包装成业务错误码的内部失败统一回成 `-1` + 空 `msg`，真实原因只在站点的日志里（`data/logs/cloudreve.log`，可按响应里的 `correlation_id` 对）。上传撞上它，基本是当前用户组的存储策略不能用：文件接口的 `policy_id` 只对「导入版本」生效，普通上传的策略由用户组决定，客户端挑不了。本站最后撞上的原因就是 OneDrive 存满（2026-10-13 确认）—— 建上传会话要在存储端开写入口，空间满了这一步直接失败，读文件却一切正常。
 - **站点开了登录验证码、账号开了二步验证，App 就登不进来**。这两种情况会直接说清楚原因，不会闷着转圈。
+
+### 网盘管理（管理 →「网盘」）
+
+配了 Cloudreve 才会出现这个入口。进去能浏览目录、按名字排序、游标翻页（`pagination.next_token` 传回 `next_page_token`，翻到底时这个键根本不存在），建目录、重命名、移动、删除，以及给任意一个文件手动生成永久直链 —— 点文件那行就弹链接，「复制链接」直接进剪贴板，贴文章和图床走的是同一条 `/f/…` 地址。
+
+- **删除只丢回收站**。`DELETE /api/v4/file` 不带 `unlink/skip_soft_delete` 就是软删除，默认留 7 天，网站后台能捞回来；真·彻底删除要额外权限，普通账号会被 403「advance delete permission is required」拦下，所以 App 不开这个口子。
+- **改名之后 path 会变**。网盘的 `path` 尾段就是文件名，重命名后旧 path 已不存在，界面会连 `path` 一起换掉，后续操作才不会打到已经没了的文件上。
+- **不能把目录移进它自己或它的子孙里**，Cloudreve 对这种移动直接报错，挑目标目录时就先禁用掉。
+- **顶部那行容量只是 Cloudreve 自己记的账**（`GET /api/v4/user/capacity`，4.14.1 上 `user`、`user/quota` 都是 404）。它给的是「已用 / 策略配额」，跟存储端的真实剩余是两回事 —— 本站实测这里显示 5 TB 只用了 1%，OneDrive 其实早写满了，所以它不能用来预警上传失败，只能当个用量概览看。取不到就整行不显示，不会占错误位。
 
 ## 已知限制
 

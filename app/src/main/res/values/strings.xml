@@ -112,7 +112,21 @@
     <string name="action_share">分享</string>
     <string name="action_copy_link">复制链接</string>
     <string name="action_open_browser">在浏览器中打开</string>
+    <string name="action_close">关闭</string>
     <string name="link_copied">链接已复制</string>
     <string name="search_hint">搜索文章…</string>
     <string name="no_network">无网络连接</string>
+
+    <!-- Cloudreve 网盘 -->
+    <string name="drive_title">网盘</string>
+    <string name="drive_new_folder">新建文件夹</string>
+    <string name="drive_rename">重命名</string>
+    <string name="drive_move">移动到</string>
+    <string name="drive_move_here">移到此处</string>
+    <string name="drive_delete">删除</string>
+    <string name="drive_delete_confirm">确定要把「%1$s」丢进回收站吗？Cloudreve 默认保留 7 天，网站后台还能捞回来。</string>
+    <string name="drive_direct_link">直链</string>
+    <string name="drive_name_hint">名称</string>
+    <string name="drive_name_rule">不能包含斜杠</string>
+    <string name="drive_empty_hint">这里还没有文件。传图可以回 App 的编辑器里插，整理目录就在这里动手。</string>
 </resources>

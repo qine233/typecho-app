@@ -24,14 +24,14 @@ import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 
 /**
- * Cloudreve v4 客户端：邮箱密码换 token、单请求上传、取永久直链。
- * 逐条对着 v4 源码核过（路由表、controllers、service/explorer、错误码常量表），
+ * Cloudreve v4 客户端：邮箱密码换 token、三步分片上传、取永久直链。
+ * 逐条对着 v4 源码核过（路由表、controllers、service/explorer、pkg/filemanager），
  * 错误码含义和博客里写的并不完全一样。
  */
 enum class CloudreveIssue {
     BadInput, WrongPassword, Captcha, TwoFactor, NotLoggedIn, NoPermission, NotFound,
     SignExpired, SessionExpired, TooLarge, TypeNotAllowed, NoCapacity, IllegalName,
-    FeatureOff, Network, Unknown
+    FeatureOff, Network, SilentFailure, IoFailed, ChunkMismatch, Unknown
 }
 
 /** 这三种都靠「重新登录一次」自救，仓库层据此决定要不要重试。 */
@@ -53,12 +53,81 @@ data class CloudreveToken(
     @SerialName("access_expires") val accessExpires: String = ""
 )
 
+/**
+ * 网盘里的一个节点。type 是 Cloudreve 的硬编码：1 目录、0 文件。
+ * 时间戳是带时区的 RFC3339，且小数位长度不固定（.791 到 .937224028 都有），别当 epoch 秒解析。
+ */
 @Serializable
 data class CloudreveFileNode(
+    val type: Int = 0,
     val id: String = "",
     val name: String = "",
-    val path: String = ""
+    val path: String = "",
+    val size: Long = 0,
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
+    val shared: Boolean = false
+) {
+    val isFolder: Boolean get() = type == 1
+
+    /** 「我的文件」根目录显示名是空的，面包屑要自己补一个。 */
+    val displayName: String get() = name.ifBlank { "我的文件" }
+}
+
+@Serializable
+data class CloudrevePageInfo(
+    @SerialName("page_size") val pageSize: Int = 0,
+    /** 本站开了游标翻页（is_cursor=true），翻到底就没有这个字段。 */
+    @SerialName("next_token") val nextToken: String = "",
+    @SerialName("is_cursor") val isCursor: Boolean = false
 )
+
+@Serializable
+data class CloudreveListing(
+    val files: List<CloudreveFileNode> = emptyList(),
+    val parent: CloudreveFileNode? = null,
+    val pagination: CloudrevePageInfo? = null
+)
+
+/**
+ * `GET /user/capacity`：Cloudreve 自己记账的容量。
+ * 注意这跟存储端（OneDrive/本地盘）的真实剩余空间是两回事 —— 本站实测 Cloudreve 显示还剩 4.9 TB，
+ * OneDrive 其实早就写满了。所以这块只能用来展示「已用多少」，不能拿来预警上传会不会失败。
+ */
+@Serializable
+data class CloudreveCapacity(
+    val total: Long = 0,
+    val used: Long = 0
+) {
+    /** total 不是正数就没有上限可言（无限配额、老版本、接口没给），别算出「剩 -1 B」。 */
+    val hasQuota: Boolean get() = total > 0
+
+    /** 已用量最多显示到 100%，配额本身可能被写超。 */
+    val usedFraction: Float
+        get() = if (hasQuota) (used.toFloat() / total).coerceIn(0f, 1f) else 0f
+}
+
+@Serializable
+data class CloudrevePolicyHint(
+    val type: String = "",
+    val name: String = ""
+)
+
+/**
+ * `PUT /file/upload` 返回的上传会话。
+ * @param chunkSize 0 表示不分片，整文件一次发完；
+ * @param uploadUrls 非空就是「直传存储端」策略（OneDrive 等），地址是预签名的，不能带 Authorization。
+ */
+@Serializable
+data class CloudreveUploadTicket(
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("chunk_size") val chunkSize: Long = 0,
+    @SerialName("upload_urls") val uploadUrls: List<String> = emptyList(),
+    @SerialName("callback_secret") val callbackSecret: String = "",
+    @SerialName("storage_policy") val storagePolicy: CloudrevePolicyHint? = null
+) {
+    val directToStorage: Boolean get() = uploadUrls.isNotEmpty()
+}
 
 data class CloudreveRequest(
     val url: String,
@@ -96,6 +165,12 @@ class OkHttpCloudreveTransport(
                     ?: request.body?.toRequestBody(jsonType)
                     ?: "".toRequestBody(jsonType)
             )
+            // 主机的分片上传口是 POST + 裸字节，别只给 PUT 留 bytes 通道。
+            "POST" -> builder.post(
+                request.bytes?.toRequestBody("application/octet-stream".toMediaTypeOrNull())
+                    ?: request.body?.toRequestBody(jsonType)
+                    ?: "".toRequestBody(jsonType)
+            )
             else -> builder.post(request.body?.toRequestBody(jsonType) ?: "".toRequestBody(jsonType))
         }
         try {
@@ -118,12 +193,34 @@ private data class LoginBody(val email: String, val password: String)
 @Serializable
 private data class SourceBody(val uris: List<String>)
 
+@Serializable
+private data class UploadSessionBody(
+    val uri: String,
+    val size: Long,
+    @SerialName("mime_type") val mimeType: String
+)
+
+@Serializable
+private data class CancelUploadBody(val id: String, val uri: String)
+
+@Serializable
+private data class CreateBody(val uri: String, val type: String)
+
+@Serializable
+private data class RenameBody(val uri: String, @SerialName("new_name") val newName: String)
+
+@Serializable
+private data class MoveBody(val uris: List<String>, val dst: String)
+
+
 class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTransport()) {
 
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = false
         explicitNulls = false
+        // 网盘字段会老老实实回 null（空目录的 size、翻到底时的 next_token），别让它炸掉整个解析。
+        coerceInputValues = true
     }
 
     /** v4 没有「个人 API Token」这回事，只能拿邮箱+密码换 1 小时的 access_token。 */
@@ -139,12 +236,91 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
     }
 
     /**
-     * 单请求上传：`PUT /api/v4/file/content?uri=…`，裸字节当请求体，上限是后台的「最大在线编辑大小」。
-     * 路径上不存在的目录会被 Cloudreve 顺手建出来，不用先 mkdir。
+     * v4 没有「一发入魂」的上传口子（`PUT /file/content` 是在线编辑改内容，不是上传）。
+     * 正规三步：建会话 → 按会话给的 chunk_size 分片送 → 直传策略再回主机报一声传完了，
+     * 占位文件才会转正。
      */
-    suspend fun upload(site: String, token: String, uri: String, bytes: ByteArray): CloudreveFileNode {
-        val target = "${apiUrl(site, "file/content")}?uri=${encode(uri)}"
-        return decode(call("PUT", target, token, bytes = bytes), CloudreveFileNode.serializer())
+    suspend fun uploadFile(site: String, token: String, uri: String, bytes: ByteArray, mimeType: String) {
+        val total = bytes.size.toLong()
+        val ticket = createUploadSession(site, token, uri, total, mimeType)
+        if (ticket.sessionId.isBlank()) {
+            throw CloudreveException(0, CloudreveIssue.Unknown, "Cloudreve 没有返回上传会话")
+        }
+
+        try {
+            val chunkSize = if (ticket.chunkSize <= 0) total else ticket.chunkSize
+            var index = 0
+            var sent = 0L
+            while (sent < total) {
+                val size = minOf(chunkSize, total - sent).toInt()
+                putChunk(site, token, ticket, bytes.copyOfRange(sent.toInt(), sent.toInt() + size), index, total)
+                sent += size
+                index += 1
+            }
+            if (ticket.directToStorage) notifyUploaded(site, token, ticket)
+        } catch (e: Exception) {
+            // 中途断了就把会话连同占位文件一起撤掉，别在网盘里留下一堆 0 字节的残骸。
+            runCatching { cancelUploadSession(site, token, ticket.sessionId, uri) }
+            throw e
+        }
+    }
+
+    private suspend fun createUploadSession(
+        site: String, token: String, uri: String, size: Long, mimeType: String
+    ): CloudreveUploadTicket {
+        val query = "?uri=${encode(uri)}"
+        val body = json.encodeToString(UploadSessionBody(uri, size, mimeType))
+        return decode(
+            call("PUT", apiUrl(site, "file/upload") + query, token, body = body),
+            CloudreveUploadTicket.serializer()
+        )
+    }
+
+    private suspend fun putChunk(
+        site: String, token: String, ticket: CloudreveUploadTicket, chunk: ByteArray, index: Int, total: Long
+    ) {
+        if (!ticket.directToStorage) {
+            // 本机/中转策略：分片交给主机，Content-Length 必须正好等于这一片的长度。
+            call("POST", apiUrl(site, "file/upload/${ticket.sessionId}/$index"), token, bytes = chunk)
+            return
+        }
+
+        // 直传策略：地址是存储端签好的，带上 Authorization 反而会被拒。
+        val start = index.toLong() * ticket.chunkSize
+        val url = ticket.uploadUrls.getOrElse(index) { ticket.uploadUrls.first() }
+        val raw = transport.execute(
+            CloudreveRequest(
+                url = url,
+                method = "PUT",
+                headers = mapOf("Content-Range" to "bytes $start-${start + chunk.size - 1}/$total"),
+                bytes = chunk
+            )
+        )
+        if (raw.status !in 200..299) {
+            throw CloudreveException(
+                raw.status,
+                CloudreveIssue.NoPermission,
+                "直传到 ${ticket.storagePolicy?.type ?: "存储端"} 失败（HTTP ${raw.status}），云端授权过期或存储端已经写满"
+            )
+        }
+    }
+
+    /** 直传完了要通知主机收尾；OneDrive 是 POST，S3/COS 那类是 GET，本站只有 OneDrive。 */
+    private suspend fun notifyUploaded(site: String, token: String, ticket: CloudreveUploadTicket) {
+        val type = ticket.storagePolicy?.type.orEmpty()
+        if (type.isNotBlank() && type != "onedrive") {
+            throw CloudreveException(0, CloudreveIssue.FeatureOff, "App 还不支持直传到 $type 存储策略")
+        }
+        call("POST", apiUrl(site, "callback/onedrive/${ticket.sessionId}/${ticket.callbackSecret}"), token)
+    }
+
+    private suspend fun cancelUploadSession(site: String, token: String, sessionId: String, uri: String) {
+        call(
+            "DELETE",
+            apiUrl(site, "file/upload"),
+            token,
+            body = json.encodeToString(CancelUploadBody(sessionId, uri))
+        )
     }
 
     /**
@@ -159,6 +335,59 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
         val link = first?.get("link")?.jsonPrimitive?.content.orEmpty()
         if (link.isBlank()) throw CloudreveException(0, CloudreveIssue.Unknown, "Cloudreve 没有返回直链")
         return link
+    }
+
+    /**
+     * 列出一个目录。本站是游标翻页：上一页带回 next_token，下一页原样传回去，
+     * 翻到底时 pagination 里根本没有 next_token 字段。目录恒定排在文件前面，不用自己排。
+     */
+    suspend fun list(
+        site: String,
+        token: String,
+        uri: String,
+        pageSize: Int = DefaultPageSize,
+        nextToken: String? = null
+    ): CloudreveListing {
+        val query = buildList {
+            add("uri=${encode(uri)}")
+            add("page=1")
+            add("page_size=$pageSize")
+            add("order_by=$OrderBy")
+            add("order_direction=$OrderDirection")
+            if (!nextToken.isNullOrBlank()) add("next_page_token=${encode(nextToken)}")
+        }.joinToString("&")
+        return decode(
+            call("GET", apiUrl(site, "file") + "?$query", token),
+            CloudreveListing.serializer()
+        )
+    }
+
+    /**
+     * Cloudreve 记账的已用/配额。4.14.1 上只有 `user/capacity` 这条路（`user`、`user/quota` 都是 404）。
+     */
+    suspend fun capacity(site: String, token: String): CloudreveCapacity =
+        decode(call("GET", apiUrl(site, "user/capacity"), token), CloudreveCapacity.serializer())
+
+    /** 建目录时 Cloudreve 会顺手把父级中间目录一起建出来。 */
+    suspend fun createFolder(site: String, token: String, uri: String) {
+        call("POST", apiUrl(site, "file/create"), token, body = json.encodeToString(CreateBody(uri, "folder")))
+    }
+
+    suspend fun rename(site: String, token: String, uri: String, newName: String) {
+        call("POST", apiUrl(site, "file/rename"), token, body = json.encodeToString(RenameBody(uri, newName)))
+    }
+
+    /** dst 是目标目录的 path；copy=true 才是复制，这里只做移动。 */
+    suspend fun move(site: String, token: String, uris: List<String>, dst: String) {
+        call("POST", apiUrl(site, "file/move"), token, body = json.encodeToString(MoveBody(uris, dst)))
+    }
+
+    /**
+     * 只丢进回收站。真·彻底删除要 unlink/skip_soft_delete，普通账号会被 403「advance delete permission is required」拦下，
+     * 所以别给 App 加这个口子。
+     */
+    suspend fun softDelete(site: String, token: String, uris: List<String>) {
+        call("DELETE", apiUrl(site, "file"), token, body = json.encodeToString(SourceBody(uris)))
     }
 
     // ── 内部 ──
@@ -198,6 +427,7 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
     }
 
     private fun issueFor(code: Int): CloudreveIssue = when (code) {
+        -1 -> CloudreveIssue.SilentFailure
         203 -> CloudreveIssue.TwoFactor
         401 -> CloudreveIssue.NotLoggedIn
         403 -> CloudreveIssue.NoPermission
@@ -207,6 +437,7 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
         40006 -> CloudreveIssue.TypeNotAllowed
         40007, 40008, 40017, 40018, 40040, 40082, 40088 -> CloudreveIssue.NoPermission
         40011, 40020, 40023 -> CloudreveIssue.SessionExpired
+        40013 -> CloudreveIssue.ChunkMismatch
         40019 -> CloudreveIssue.FeatureOff
         40026, 40027 -> CloudreveIssue.Captcha
         40044, 40016 -> CloudreveIssue.NotFound
@@ -216,6 +447,7 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
         40052 -> CloudreveIssue.IllegalName
         40069, 40080 -> CloudreveIssue.WrongPassword
         40089 -> CloudreveIssue.SessionExpired
+        50004 -> CloudreveIssue.IoFailed
         else -> CloudreveIssue.Unknown
     }
 
@@ -234,6 +466,12 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
         CloudreveIssue.TypeNotAllowed -> "Cloudreve 的存储策略不允许这个文件类型"
         CloudreveIssue.IllegalName -> "文件名被 Cloudreve 的命名规则拦下"
         CloudreveIssue.FeatureOff -> "站点没有开启对应功能"
+        // Cloudreve 把内部错误包成 code=-1、msg 为空，真实原因只在服务器日志里。
+        // 本站实测过一次：OneDrive 存满，建上传会话就直接 -1，看着像 App 坏了。
+        CloudreveIssue.SilentFailure ->
+            "Cloudreve 直接拒绝了这次请求，也没说原因（错误码 -1）；先确认存储端还有空间、云端授权没过期"
+        CloudreveIssue.IoFailed -> "Cloudreve 读写存储时失败，存储策略本身大概率不通"
+        CloudreveIssue.ChunkMismatch -> "分片大小和会话声明的对不上，云端拒收"
         CloudreveIssue.BadInput -> "Cloudreve 说参数不对${raw.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()}"
         CloudreveIssue.Network -> raw
         CloudreveIssue.Unknown -> "Cloudreve 出错${raw.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()}"
@@ -255,6 +493,10 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
     companion object {
         fun apiUrl(site: String, path: String): String =
             site.trim().trimEnd('/') + "/api/v4/" + path
+
+        private const val DefaultPageSize = 100
+        private const val OrderBy = "name"
+        private const val OrderDirection = "asc"
 
         private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
     }

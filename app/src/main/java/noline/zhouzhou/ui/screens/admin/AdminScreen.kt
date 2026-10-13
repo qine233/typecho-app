@@ -41,7 +41,8 @@ fun AdminScreen(
     onEditPost: (String) -> Unit,
     onViewComments: () -> Unit,
     onViewPages: () -> Unit,
-    onViewCategories: () -> Unit
+    onViewCategories: () -> Unit,
+    onViewDrive: () -> Unit
 ) {
     val viewModel = typechoViewModel<AdminViewModel>(appContainer) { AdminViewModel(it) }
     val uiState by viewModel.uiState.collectAsState()
@@ -127,6 +128,15 @@ fun AdminScreen(
                         label = stringResource(R.string.admin_categories),
                         onClick = onViewCategories
                     )
+                }
+                if (uiState.driveAvailable) {
+                    item {
+                        ActionCard(
+                            icon = Icons.Default.Cloud,
+                            label = stringResource(R.string.drive_title),
+                            onClick = onViewDrive
+                        )
+                    }
                 }
             }
 
