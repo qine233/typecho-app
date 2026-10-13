@@ -133,39 +133,55 @@ class HomeViewModel(
                 return@launch
             }
             // 重取时先留着旧列表渲染，新数据到了再换，避免整页闪一下骨架屏。
-            val result = container.postRepository.getRecentPosts(config, PAGE_SIZE, page)
-            result.fold(
-                onSuccess = { fetched ->
-                    container.postCache.putAll(fetched)
-                    rawPosts = if (reset) {
-                        fetched
-                    } else {
-                        val seen = rawPosts.map { it.postId }.toSet()
-                        rawPosts + fetched.filter { it.postId !in seen }
-                    }
-                    val merged = rawPosts
-                        .filterNot { it.isDiary }
-                        .distinctBy { p -> p.postId }
-                    // 每页尾部那一篇由 Repository 单独补取，正常就是整页；
-                    // 补取偶尔失败时留 1 篇余量，避免提前判定「到底了」。
+            // 首页不显示日记，而日记写得密、常常整页都是，所以重置时自动往后翻几页凑满首屏。
+            var autoPages = 0
+            while (true) {
+                val current = page
+                val result = container.postRepository.getRecentPosts(config, PAGE_SIZE, current)
+                if (result.isFailure) {
                     _uiState.update {
                         it.copy(
-                            posts = merged,
                             isLoading = false,
                             isRefreshing = false,
                             isLoadingMore = false,
-                            canLoadMore = fetched.size >= PAGE_SIZE - TailSlack && page < MaxPages
+                            error = result.exceptionOrNull()?.message
                         )
                     }
-                    container.postCacheStore.save(rawPosts)
-                },
-                onFailure = { e ->
-                    _uiState.update {
-                        it.copy(isLoading = false, isRefreshing = false, isLoadingMore = false, error = e.message)
-                    }
-                    if (!reset && page > 1) page -= 1
+                    if (!reset && current > 1) page = current - 1
+                    break
                 }
-            )
+                val fetched = result.getOrDefault(emptyList())
+
+                container.postCache.putAll(fetched)
+                rawPosts = if (reset) {
+                    fetched
+                } else {
+                    val seen = rawPosts.map { it.postId }.toSet()
+                    rawPosts + fetched.filter { it.postId !in seen }
+                }
+                val merged = rawPosts
+                    .filterNot { it.isDiary }
+                    .distinctBy { p -> p.postId }
+                // 每页尾部那一篇由 Repository 单独补取，正常就是整页；
+                // 补取偶尔失败时留 1 篇余量，避免提前判定「到底了」。
+                val hasMore = fetched.size >= PAGE_SIZE - TailSlack && current < MaxPages
+                _uiState.update {
+                    it.copy(
+                        posts = merged,
+                        isLoading = false,
+                        isRefreshing = false,
+                        isLoadingMore = false,
+                        canLoadMore = hasMore
+                    )
+                }
+                container.postCacheStore.save(rawPosts)
+
+                if (!reset || merged.size >= MinFirstScreen || !hasMore || autoPages >= MaxAutoPages) break
+                autoPages += 1
+                page = current + 1
+                // 还没翻出可见内容就接着翻，继续显示骨架屏而不是「暂无文章」。
+                _uiState.update { it.copy(isLoading = merged.isEmpty(), isLoadingMore = merged.isNotEmpty()) }
+            }
         }
     }
 
@@ -177,5 +193,9 @@ class HomeViewModel(
         private const val PAGE_SIZE = 20
         private const val TailSlack = 1
         private const val MaxPages = 30
+
+        /** 首屏至少要凑够这么多篇非日记文章才停，不然翻两页全是日记就只剩空列表。 */
+        private const val MinFirstScreen = 8
+        private const val MaxAutoPages = 10
     }
 }
