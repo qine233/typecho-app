@@ -1,9 +1,13 @@
 package noline.zhouzhou.data.remote
 
+import noline.zhouzhou.data.model.BillInput
+import noline.zhouzhou.data.model.BillUpdate
 import noline.zhouzhou.data.model.RecordInput
+import noline.zhouzhou.data.model.kindsMonthWithLabels
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
@@ -207,7 +211,7 @@ class NolineApiTest {
             }
         }
         assertEquals(NolineIssue.BadInput, error?.issue)
-        assertEquals(listOf("2026-02-30", ""), error?.invalidDates)
+        assertEquals(listOf("2026-02-30", ""), error?.invalid)
     }
 
     @Test
@@ -286,5 +290,240 @@ class NolineApiTest {
         assertTrue(url.contains("limit=100"))
         assertTrue(url.contains("from=2026-07-14"))
         assertTrue(url.endsWith("to=2026-10-12"))
+    }
+
+    // ── 买菜记账 ──
+
+    /** 一条流水都没有：六个区间全是显式 null，months 仍然补满 7 项。 */
+    private val emptyBills = """{"code":0,"data":{"count":0,"currency":"CNY","first":null,"last":null,""" +
+        """"kinds":[{"kind":"veg","label":"蔬菜"},{"kind":"fruit","label":"水果"},{"kind":"meat","label":"肉禽"},""" +
+        """{"kind":"fish","label":"水产"},{"kind":"egg","label":"蛋奶"},{"kind":"grain","label":"米面粮油"},""" +
+        """{"kind":"seasoning","label":"调料"},{"kind":"other","label":"其他"}],""" +
+        """"totals":null,"week":null,"prev_week":null,"month":null,"prev_month":null,"year":null,""" +
+        """"months":[{"month":"2026-04","amount":0.0,"count":0},{"month":"2026-05","amount":0.0,"count":0},""" +
+        """{"month":"2026-06","amount":0.0,"count":0},{"month":"2026-07","amount":0.0,"count":0},""" +
+        """{"month":"2026-08","amount":0.0,"count":0},{"month":"2026-09","amount":0.0,"count":0},""" +
+        """{"month":"2026-10","amount":0.0,"count":0}],"kinds_month":[],"by_date":[],"recent":[],""" +
+        """"span":{"today":"2026-10-14","weekday":3,"month_days":31,"month_day_of":14}}}"""
+
+    /** 有数据：max 只在累计那一档出现，本周为空的那档给 null。 */
+    private val fullBills = """{"code":0,"data":{"count":3,"currency":"CNY","first":"2026-10-12","last":"2026-10-14",""" +
+        """"totals":{"start":"2026-10-12","end":"2026-10-14","amount":88.5,"count":3,"days":2,""" +
+        """"avg_day":44.25,"avg_bill":29.5,"max":{"date":"2026-10-14","title":"三文鱼","amount":59.9}},""" +
+        """"week":{"start":"2026-10-12","end":"2026-10-18","amount":88.5,"count":3,"days":2,""" +
+        """"avg_day":44.25,"avg_bill":29.5,"max":null},"prev_week":null,""" +
+        """"month":{"start":"2026-10-01","end":"2026-10-31","amount":88.5,"count":3,"days":2,""" +
+        """"avg_day":44.25,"avg_bill":29.5,"max":null},"prev_month":null,"year":null,""" +
+        """"months":[{"month":"2026-10","amount":88.5,"count":3}],"kinds_month":[{"kind":"fish","amount":59.9,"count":1,"share":0.677}],"by_date":[""" +
+        """{"date":"2026-10-14","amount":69.9,"count":2,"items":[{"id":"20261014-002","date":"2026-10-14",""" +
+        """"title":"三文鱼","amount":59.9,"kind":"fish","shop":"盒马","note":"","time":1760000000,"updated":0}]}],""" +
+        """"recent":[{"id":"20261014-001","date":"2026-10-14","title":"黄瓜","amount":3.5,"kind":"veg","shop":"","note":"","time":1759999000,"updated":0}],""" +
+        """"span":{"today":"2026-10-14","weekday":3,"month_days":31,"month_day_of":14}}}"""
+
+    @Test
+    fun `bills overview keeps null aggregates and the seven months`() {
+        val overview = runBlocking {
+            NolineApi(Fake { ok(emptyBills) }).bills("https://x.work", UrlForm.Rewritten, "k")
+        }
+        assertEquals(0, overview.count)
+        assertNull(overview.totals)
+        assertNull(overview.week)
+        assertNull(overview.prevMonth)
+        assertNull(overview.year)
+        assertEquals(7, overview.months.size)
+        assertEquals(8, overview.kinds.size)
+        // 部分区间必须标注过了几天，否则「本周比上周省」会读成一个还没结束的星期。
+        assertEquals("3/7 天", overview.span.weekFraction)
+        assertEquals("14/31 天", overview.span.monthFraction)
+    }
+
+    @Test
+    fun `bills overview parses aggregates max and by_date`() {
+        val overview = runBlocking {
+            NolineApi(Fake { ok(fullBills) }).bills("https://x.work", UrlForm.Rewritten, "k")
+        }
+        assertEquals(88.5, overview.totals?.amount ?: 0.0, 0.001)
+        assertEquals("三文鱼", overview.totals?.max?.title)
+        // avg_day 除以的是开了火的天数，不是日历天数
+        assertEquals(2, overview.totals?.days)
+        assertEquals(44.25, overview.totals?.avgDay ?: 0.0, 0.001)
+        assertNull(overview.week?.max)
+        assertNull(overview.prevWeek)
+        // kinds 缺省时退回 App 内置的 8 项，选择器不会因为站点少给一项就空掉。
+        assertEquals(8, overview.kinds.size)
+        assertEquals("水产", overview.kindsMonthWithLabels.single().second)
+        val row = overview.byDate.single().items.single()
+        assertEquals("20261014-002", row.id)
+        assertEquals(0L, row.updated)
+        assertEquals(69.9, overview.byDate.single().amount, 0.001)
+    }
+
+    @Test
+    fun `bill records only sends limit when the caller asks`() {
+        val page = """{"code":0,"data":{"total":0,"amount":0.0,"records":[]}}"""
+        val default = Fake { ok(page) }
+        runBlocking { NolineApi(default).billRecords("https://x.work", UrlForm.Rewritten, "k") }
+        assertFalse(default.calls.single().url.contains("limit="))
+
+        val whole = Fake { ok(page) }
+        runBlocking {
+            NolineApi(whole).billRecords(
+                "https://x.work", UrlForm.Rewritten, "k",
+                limit = 0, from = "2026-10-01", to = "2026-10-31", kind = "meat"
+            )
+        }
+        val url = whole.calls.single().url
+        // limit=0 是「整段都别截」，缺省 50 只给区间尾部 50 条，算出来的合计会少。
+        assertTrue(url.contains("limit=0"))
+        assertTrue(url.contains("to=2026-10-31"))
+        assertTrue(url.endsWith("kind=meat"))
+    }
+
+    @Test
+    fun `saveBills sends one batch and gets ids back`() {
+        val transport = Fake {
+            ok("""{"code":0,"data":{"saved":2,"total":20,"ids":["20261014-001","20261014-002"],"invalid":[]}}""")
+        }
+        val result = runBlocking {
+            NolineApi(transport).saveBills(
+                "https://x.work", UrlForm.Rewritten, "k",
+                listOf(
+                    BillInput("2026-10-14", "黄瓜", 3.5, "veg", "盒马"),
+                    BillInput("2026-10-14", "盐", 2.0)
+                )
+            )
+        }
+        val call = transport.calls.single()
+        assertEquals("POST", call.method)
+        assertTrue(call.url.endsWith("/api/bills/records"))
+        assertEquals(listOf("20261014-001", "20261014-002"), result.ids)
+        assertTrue(call.body!!.contains("黄瓜"))
+        // 没带的可选键整个不发，省得服务器把 null 当成清空。
+        assertFalse(call.body!!.contains("\"note\""))
+    }
+
+    @Test
+    fun `bills partial success reports rejected titles`() {
+        val result = runBlocking {
+            NolineApi(Fake {
+                ok("""{"code":0,"data":{"saved":1,"total":20,"ids":["20261014-001"],"invalid":["这把葱有点老就算了不买了"]}}""")
+            }).saveBills(
+                "https://x.work", UrlForm.Rewritten, "k",
+                listOf(BillInput("2026-10-14", "黄瓜", 3.5), BillInput("2026-10-14", "", 2.0))
+            )
+        }
+        assertEquals(1, result.saved)
+        // 记账 invalid 里是品名（截到 20 字），不是体重那边的日期。
+        assertEquals(listOf("这把葱有点老就算了不买了"), result.invalid)
+    }
+
+    @Test
+    fun `bills all-rejected batch is a 400 with titles`() {
+        val error = runBillsError(
+            """{"code":400,"message":"没有可用记录","data":{"saved":0,"total":19,"ids":[],"invalid":["",""]}}"""
+        )
+        assertEquals(NolineIssue.BadInput, error?.issue)
+        assertEquals(listOf("", ""), error?.invalid)
+    }
+
+    @Test
+    fun `bills write off reads as read only, wrong key reads as wrong key`() {
+        val readOnly = runBillsWriteError(readonly = true)
+        assertEquals(NolineIssue.ReadOnly, readOnly?.issue)
+
+        val badKey = runBillsWriteError(readonly = false)
+        assertEquals(NolineIssue.WrongKey, badKey?.issue)
+    }
+
+    @Test
+    fun `updateBill puts sends the id and returns the whole record`() {
+        val transport = Fake {
+            ok("""{"code":0,"data":{"record":{"id":"20261014-002","date":"2026-10-13","title":"三文鱼",""" +
+                """"amount":59.9,"kind":"fish","shop":"","note":"","time":1760000000,"updated":1760009000},"total":20}}""")
+        }
+        val record = runBlocking {
+            NolineApi(transport).updateBill(
+                "https://x.work", UrlForm.Rewritten, "k",
+                BillUpdate("20261014-002", "2026-10-13", "三文鱼", 59.9, "fish", "", "")
+            )
+        }
+        val call = transport.calls.single()
+        assertEquals("PUT", call.method)
+        assertTrue(call.body!!.contains("\"id\":\"20261014-002\""))
+        // 改了日期，id 不变；time 还是当初录入那一刻。
+        assertEquals("20261014-002", record?.id)
+        assertEquals("2026-10-13", record?.date)
+        assertEquals(1760000000L, record?.time)
+        assertEquals(1760009000L, record?.updated)
+    }
+
+    @Test
+    fun `updateBill on an unknown id is a 404`() {
+        val transport = Fake { req ->
+            if (req.method == "PUT") ok("""{"code":404,"message":"没有这条记录"}""")
+            else ok(fullBills)
+        }
+        val error = runBlocking {
+            try {
+                NolineApi(transport).updateBill(
+                    "https://x.work", UrlForm.Rewritten, "k",
+                    BillUpdate("20260101-999", "2026-01-01", "葱", 1.0, "veg", "", "")
+                )
+                null
+            } catch (e: NolineException) {
+                e
+            }
+        }
+        assertEquals(404, error?.code)
+        assertEquals(NolineIssue.BadPath, error?.issue)
+    }
+
+    @Test
+    fun `deleteBill sends the id in the query and swallows 404`() {
+        val gone = runBlocking {
+            NolineApi(Fake { ok("""{"code":404,"message":"没有这条记录"}""") })
+                .deleteBill("https://x.work", UrlForm.Rewritten, "k", "20261014-002")
+        }
+        assertFalse(gone)
+
+        val transport = Fake { ok("""{"code":0,"data":{"deleted":"20261014-002","total":19}}""") }
+        val deleted = runBlocking {
+            NolineApi(transport).deleteBill("https://x.work", UrlForm.Rewritten, "k", "20261014-002")
+        }
+        assertTrue(deleted)
+        val call = transport.calls.single()
+        assertEquals("DELETE", call.method)
+        assertTrue(call.url.endsWith("/api/bills/records?id=20261014-002"))
+    }
+
+    private fun runBillsError(body: String): NolineException? = runBlocking {
+        try {
+            NolineApi(Fake { ok(body) }).saveBills(
+                "https://x.work", UrlForm.Rewritten, "k", listOf(BillInput("2026-10-14", "", 0.0))
+            )
+            null
+        } catch (e: NolineException) {
+            e
+        }
+    }
+
+    private fun runBillsWriteError(readonly: Boolean): NolineException? {
+        val transport = Fake { req ->
+            when {
+                req.method == "POST" -> ok("""{"code":403,"message":"写入未开启"}""")
+                readonly -> ok(fullBills)
+                else -> ok("""{"code":403,"message":"密钥不正确"}""")
+            }
+        }
+        return runBlocking {
+            try {
+                NolineApi(transport).saveBills(
+                    "https://x.work", UrlForm.Rewritten, "k", listOf(BillInput("2026-10-14", "黄瓜", 3.5))
+                )
+                null
+            } catch (e: NolineException) {
+                e
+            }
+        }
     }
 }

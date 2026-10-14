@@ -212,7 +212,7 @@ class HealthRepository(
                 when {
                     // 400：整批都没通过，日期留着也没用，直接丢回给用户改。
                     e.code == 400 -> {
-                        invalid = e.invalidDates.ifEmpty { writes.map { it.first } }
+                        invalid = e.invalid.ifEmpty { writes.map { it.first } }
                         done += writes.map { it.first }
                     }
                     e.issue == NolineIssue.Network -> offline = true

@@ -25,6 +25,7 @@ import noline.zhouzhou.ui.screens.admin.AdminScreen
 import noline.zhouzhou.ui.screens.admin.CategoriesScreen
 import noline.zhouzhou.ui.screens.admin.CommentsScreen
 import noline.zhouzhou.ui.screens.admin.PagesScreen
+import noline.zhouzhou.ui.screens.bills.BillsScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
 import noline.zhouzhou.ui.screens.drive.DriveScreen
 import noline.zhouzhou.ui.screens.drive.ShareScreen
@@ -50,6 +51,7 @@ sealed class Screen(val route: String) {
     data object Admin : Screen("admin")
     data object Diary : Screen("diary")
     data object Health : Screen("health")
+    data object Bills : Screen("bills")
     data object Editor : Screen("editor?postId={postId}&isPage={isPage}") {
         fun createRoute(postId: String? = null, isPage: Boolean = false) =
             "editor?postId=${postId.orEmpty()}&isPage=$isPage"
@@ -185,6 +187,15 @@ fun TypechoNavHost(
             composable(Screen.Health.route) {
                 HealthScreen(
                     appContainer = appContainer,
+                    onOpenSettings = { switchTab(Screen.Settings.route) },
+                    onOpenBills = { navController.navigate(Screen.Bills.route) }
+                )
+            }
+
+            composable(Screen.Bills.route) {
+                BillsScreen(
+                    appContainer = appContainer,
+                    onBack = { navController.popBackStack() },
                     onOpenSettings = { switchTab(Screen.Settings.route) }
                 )
             }

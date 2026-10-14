@@ -1,5 +1,13 @@
 package noline.zhouzhou.data.remote
 
+import noline.zhouzhou.data.model.BillDeleteResult
+import noline.zhouzhou.data.model.BillInput
+import noline.zhouzhou.data.model.BillRecord
+import noline.zhouzhou.data.model.BillRecordsPage
+import noline.zhouzhou.data.model.BillSaveResult
+import noline.zhouzhou.data.model.BillUpdate
+import noline.zhouzhou.data.model.BillUpdateResult
+import noline.zhouzhou.data.model.BillsOverview
 import noline.zhouzhou.data.model.HealthOverview
 import noline.zhouzhou.data.model.PingInfo
 import noline.zhouzhou.data.model.RecordInput
@@ -39,7 +47,11 @@ class NolineException(
     val code: Int,
     val issue: NolineIssue,
     override val message: String,
-    val invalidDates: List<String> = emptyList()
+    /**
+     * 被服务器丢掉的条目。体重那批是**日期**，记账那批是**品名**（§4.10），
+     * 所以文案由调用方决定，这里只负责原样带出来。
+     */
+    val invalid: List<String> = emptyList()
 ) : Exception(message)
 
 data class NolineRequest(
@@ -84,6 +96,7 @@ class OkHttpNolineTransport(
         val body = request.body?.toRequestBody(jsonMediaType)
         when (request.method) {
             "POST" -> builder.post(body ?: "".toRequestBody(jsonMediaType))
+            "PUT" -> builder.put(body ?: "".toRequestBody(jsonMediaType))
             "DELETE" -> builder.delete(body)
             else -> builder.get()
         }
@@ -156,8 +169,70 @@ class NolineApi(
             }
         }
 
-    // ── 连通性自检 ──
+    // ── 买菜记账 ──
 
+    /** 首屏一个请求就够：三个区间数 + 涨跌基线 + 7 根柱子 + 本月分类占比 + 最近流水。 */
+    suspend fun bills(siteUrl: String, form: UrlForm, key: String): BillsOverview {
+        val data = request(siteUrl, form, "bills", "GET", key)
+        return decode(data, BillsOverview.serializer())
+    }
+
+    /**
+     * 明细。`limit` 给 null 就用服务器默认的 50；要整段合计必须显式传 0（不限），
+     * 因为响应里的 `amount` 只算这次真的返回的那些条。
+     * 接口没有 cursor/offset 分页，`limit` 取的是区间尾部，翻旧账靠 from/to 分段。
+     */
+    suspend fun billRecords(
+        siteUrl: String, form: UrlForm, key: String,
+        limit: Int? = null, from: String = "", to: String = "", kind: String = ""
+    ): BillRecordsPage {
+        val query = buildMap {
+            limit?.let { put("limit", it.toString()) }
+            if (from.isNotBlank()) put("from", from)
+            if (to.isNotBlank()) put("to", to)
+            if (kind.isNotBlank()) put("kind", kind)
+        }
+        val data = request(siteUrl, form, "bills/records", "GET", key, query)
+        return decode(data, BillRecordsPage.serializer())
+    }
+
+    /** 记一笔，或者一次买多样一起提交。永远新增，没有「同日覆盖」，重放会多记。 */
+    suspend fun saveBills(
+        siteUrl: String, form: UrlForm, key: String, bills: List<BillInput>
+    ): BillSaveResult = withReadOnlyGuard(siteUrl, form, key) {
+        val payload = json.encodeToString(BillsMapSerializer, mapOf("records" to bills))
+        val data = request(siteUrl, form, "bills/records", "POST", key, body = payload)
+        decode(data, BillSaveResult.serializer())
+    }
+
+    /**
+     * 按 id 改一条。整条重校验，任何一项不合法就 400 且原记录一个字都不动。
+     *
+     * @return 改完之后的整条；null 表示服务器没回（本地照样算改成功，刷新时会覆盖回来）。
+     */
+    suspend fun updateBill(
+        siteUrl: String, form: UrlForm, key: String, update: BillUpdate
+    ): BillRecord? = withReadOnlyGuard(siteUrl, form, key) {
+        val payload = json.encodeToString(BillUpdate.serializer(), update)
+        val data = request(siteUrl, form, "bills/records", "PUT", key, body = payload)
+        decode(data, BillUpdateResult.serializer()).record
+    }
+
+    /** @return false 表示本来就没这条（404 在幂等语义上等于删除成功）。 */
+    suspend fun deleteBill(siteUrl: String, form: UrlForm, key: String, id: String): Boolean =
+        withReadOnlyGuard(siteUrl, form, key) {
+            try {
+                val data = request(
+                    siteUrl, form, "bills/records", "DELETE", key, mapOf("id" to id)
+                )
+                data?.let { decode(it, BillDeleteResult.serializer()) }
+                true
+            } catch (e: NolineException) {
+                if (e.code == 404) false else throw e
+            }
+        }
+
+    // ── 连通性自检 ──
     /** 三种形态依次试 ping，返回第一个通的；不通时区分「接口没开」和「路径不对」。 */
     suspend fun probe(siteUrl: String): ProbeResult {
         var lastIssue = NolineIssue.Network
@@ -256,7 +331,7 @@ class NolineApi(
             code = envelope.code,
             issue = issueFor(envelope.code),
             message = envelope.message ?: "接口返回错误 ${envelope.code}",
-            invalidDates = envelope.invalidDates()
+            invalid = envelope.invalidEntries()
         )
     }
 
@@ -271,7 +346,7 @@ class NolineApi(
         else -> NolineIssue.Unknown
     }
 
-    private fun NolineEnvelope.invalidDates(): List<String> {
+    private fun NolineEnvelope.invalidEntries(): List<String> {
         val data = this.data as? JsonObject ?: return emptyList()
         val invalid = data["invalid"] ?: return emptyList()
         return runCatching { invalid.jsonArray.map { it.jsonPrimitive.content } }.getOrDefault(emptyList())
@@ -288,6 +363,10 @@ class NolineApi(
         private val MapSerializer = MapSerializer(
             String.serializer(),
             ListSerializer(RecordInput.serializer())
+        )
+        private val BillsMapSerializer = MapSerializer(
+            String.serializer(),
+            ListSerializer(BillInput.serializer())
         )
 
         fun buildUrl(

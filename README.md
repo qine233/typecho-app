@@ -34,6 +34,12 @@
 - 体重 / 体脂率按天记录，概览页给出当前值、BMI、目标进度、7/30/90 天变化与趋势折线图
 - 断网时先进本机队列，恢复后自动补交；接口按天整体覆盖，重放安全
 
+**买菜记账**（可选，同一个插件、同一个开关，入口在「健康」页顶部）
+- 概览一屏读完：本月大额 + 涨跌、本周/本年/累计、近 7 个月柱状（空月也补零画出来）、本月分类占比、最近 12 天流水
+- 「再加一样」一次买多样，合并成**一个**批量 POST；点分类 chip 就地按类筛本月流水，点任一行可改可删
+- 涨跌是客户端算的（接口不做差），上周为空时画「—」而不是「省了本期全部」；本周/本月都带「3/7 天」这种已过天数标注，不会把没过完的区间当整段比
+- 离线记账走本机队列：新增合并成一个批量 POST、拿到服务器返回的编号才算提交成功（没有编号的行改不了也删不了），修改走幂等 PUT，删除撞上「本来就没这条」当成功放过
+
 **通用**
 - 深色模式（跟随系统 / 浅色 / 深色）、字体缩放（全局生效，包括正文渲染区）
 - 文章列表持久化缓存，冷启动先出内容再刷新
@@ -48,9 +54,9 @@
 | 架构 | 单 Activity + Navigation-Compose；`AppContainer` 手写依赖注入；ViewModel + StateFlow |
 | 网络 | OkHttp 4.12；XML-RPC 自己实现（`XmlRpcClient` 手写编解码，无第三方 XML-RPC 库）；NoLine / Cloudreve 走 kotlinx.serialization |
 | 图片 | Coil 3 |
-| 存储 | DataStore Preferences（配置、互动状态）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康离线队列） |
+| 存储 | DataStore Preferences（配置、互动状态）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康与记账离线队列 / 记账概览与品名候选） |
 | 构建 | AGP 8.7.3、Gradle 8.9 wrapper、JDK 17、minSdk 26 / target & compileSdk 35 |
-| 测试 | JUnit 4 + kotlinx.serialization，111 个单元测试（`app/src/test`） |
+| 测试 | JUnit 4 + kotlinx.serialization，131 个单元测试（`app/src/test`） |
 
 ## 目录结构
 
@@ -64,7 +70,7 @@ app/src/main/java/noline/zhouzhou/
 └── ui/
     ├── navigation/  # NavGraph + 自绘 TypechoTabBar
     ├── components/  # 卡片、评论项、小红书式头部/引导文案
-    ├── screens/     # home / diary / post / editor / admin / health / settings / login
+    ├── screens/     # home / diary / post / editor / admin / health / bills / settings / login
     └── theme/       # 配色（暖棕强调色 + 灰底白卡）、字体
 ```
 
@@ -136,9 +142,9 @@ XML-RPC 是 Typecho 核心自带的（`var/Widget/XmlRpc.php`，路由 `do(actio
 
 **站点侧改了更彻底**：在宝塔的 PHP 8.4 配置里把 `display_errors` 设为 `Off`（或从 `error_reporting` 里去掉 `E_DEPRECATED`），warning 就不再进响应体，小回复立刻恢复正常长度。改完 `metaWeblog.newPost` / `editPost` 的返回值才真正读得到，不用依赖上面这层兜底。
 
-## 健康记录：需要 NoLineApi 插件
+## 健康记录与买菜记账：需要 NoLineApi 插件
 
-这个功能是可选的，不装插件其余功能照常。「健康」标签只对管理员账号显示，读者账号看不到；没配好接口时点进去是一页配置引导，不会白屏。前提是站点装了配套的 `NolineApi` Typecho 插件（REST 端点：`ping`、`theme`、`health`、`health/records`）。
+这两个功能是可选的，不装插件其余功能照常。「健康」标签只对管理员账号显示，读者账号看不到；记账入口在「健康」页顶部的「买菜记账」胶囊里，不占底部第六个标签。没配好接口时点进去是一页配置引导，不会白屏。前提是站点装了配套的 `NolineApi` Typecho 插件（REST 端点：`ping`、`theme`、`health`、`health/records`、`bills`、`bills/records`）。
 
 配置四步：
 
@@ -150,6 +156,16 @@ XML-RPC 是 Typecho 核心自带的（`var/Widget/XmlRpc.php`，路由 `do(actio
 自检会真的跑一遍读写：先按 `/api/…` → `/index.php/api/…` → `/?noline_api=…` 三种 URL 形态探测出可用的一种并记住，再发一次读取和一次「必定无效」的写入探针（weight 0，服务端会直接拒掉，不落库），从而区分「密钥错」「站点关了」「只读」「路径不通」。结果卡片会用不同文案告诉你卡在哪一步，包括把服务器原话和解析报错分开显示。
 
 写记录前 App 本地先校验：日期必须是不晚于今天的 `yyyy-MM-dd`（严格解析，`2026-02-30` 这种会被拒）、体重在 20–400 kg、体脂率异常只提示不拦。
+
+记账这边和体重有几处规矩不一样，都是对着插件源码（`plugins/NolineApi/Bills.php`）核过的：
+
+- POST **永远新增**，没有「同日覆盖」，所以离线重放必须先攒着、合并成一次批量提交，不能像体重那样随手重发。
+- 批量提交的响应里 `ids[]` 是按「通过校验的那几条」同序给的，App 必须把它认回本地条目 —— 没有服务器编号的行既改不了也删不了；`invalid[]` 装的是**品名**（截到 20 字），不是体重那边的日期。
+- PUT 要在 body 里带 `id`（缺了 400、查无此条 404），改了日期 `id` 也不变，所以日期不能从 `id` 反推；`time` 一直是当初录入那一刻，`updated` 为 0 表示从没改过。
+- DELETE 的 `id` 在 **query** 里；查无此条回 404，客户端按删除成功放过（重放第二次就是这个）。
+- 分类代码是稳定的 8 项（`veg/fruit/meat/fish/egg/grain/seasoning/other`），写错的代码服务器**静默**归到 `other`，所以选择器只给这 8 个，标签由 App 自己出。
+- `GET /api/bills/records` 的 `limit` 默认 50，取的是区间**尾部** 50 条，而响应里的 `amount` 只算真返回的那些 —— 要整月合计必须显式传 `limit=0`。
+- 一条流水都没有时，六个区间（`totals`/`week`/`prev_week`/`month`/`prev_month`/`year`）和 `max` 都是显式 `null`，不是「金额为 0」。
 
 ## 插图图床：可选接 Cloudreve v4
 

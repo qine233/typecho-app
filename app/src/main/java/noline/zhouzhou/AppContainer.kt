@@ -35,6 +35,10 @@ class AppContainer(val application: Application) {
     val healthRepository: HealthRepository by lazy {
         HealthRepository(nolineApi, settingsRepository, healthLocalStore)
     }
+    val billsLocalStore: BillsLocalStore by lazy { BillsLocalStore(application) }
+    val billsRepository: BillsRepository by lazy {
+        BillsRepository(nolineApi, settingsRepository, billsLocalStore)
+    }
     val updateRepository: UpdateRepository by lazy { UpdateRepository(application) }
     val cloudreveRepository: CloudreveRepository by lazy {
         CloudreveRepository(cloudreveApi) { settingsRepository.cloudreveConfig.first() }

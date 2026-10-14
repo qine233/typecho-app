@@ -44,7 +44,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun HealthScreen(
     appContainer: AppContainer,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenBills: () -> Unit
 ) {
     val viewModel = typechoViewModel<HealthViewModel>(appContainer) { HealthViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -68,6 +69,7 @@ fun HealthScreen(
             HealthHeader(
                 loading = state.loading,
                 pendingCount = state.pendingCount,
+                onOpenBills = onOpenBills,
                 onRefresh = { viewModel.refresh() },
                 onSync = { viewModel.syncNow() }
             )
@@ -198,9 +200,11 @@ fun HealthScreen(
 private fun HealthHeader(
     loading: Boolean,
     pendingCount: Int,
+    onOpenBills: () -> Unit,
     onRefresh: () -> Unit,
     onSync: () -> Unit
 ) {
+    val t = LocalNoLine.current
     Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
         Spacer(Modifier.statusBarsPadding().height(0.dp))
         Row(
@@ -215,6 +219,19 @@ private fun HealthHeader(
                 fontSize = 19.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.width(8.dp))
+            // 记账和健康共用一把密钥、一个写入开关，所以入口挂在这里，不再占一个底部标签。
+            Text(
+                "买菜记账",
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = t.accent,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(t.accentBg)
+                    .clickable(onClick = onOpenBills)
+                    .padding(horizontal = 11.dp, vertical = 5.dp)
             )
             Spacer(Modifier.weight(1f))
             if (pendingCount > 0) {
