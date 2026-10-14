@@ -332,4 +332,194 @@ class CloudreveApiTest {
         assertEquals(CloudreveIssue.Unknown, e.issue)
         assertTrue(e.message.contains("HTTP 200"))
     }
+
+    // ── 手动上传 / 下载 / 分享 ──
+
+    /** 流式上传：分片按偏移一片一片读，读完一片才报一次进度。 */
+    @Test
+    fun `a streamed upload reads the file in order and reports progress per chunk`() {
+        val transport = Fake { request ->
+            when {
+                request.url.contains("file/upload?uri=") ->
+                    ok("""{"code":0,"data":{"session_id":"S1","chunk_size":3,"callback_secret":"sec1","storage_policy":{"type":"local"}}}""")
+                else -> ok("""{"code":0,"data":null}""")
+            }
+        }
+        val reads = mutableListOf<Pair<Long, Int>>()
+        val progress = mutableListOf<Long>()
+        runBlocking {
+            CloudreveApi(transport).uploadFile(
+                site = "https://p", token = "T1", uri = "cloudreve://my/a.bin", size = 7L,
+                mimeType = "application/octet-stream",
+                read = { start, length -> reads += start to length; ByteArray(length) },
+                onProgress = { progress += it }
+            )
+        }
+
+        assertEquals(listOf(0L to 3, 3L to 3, 6L to 1), reads)
+        assertEquals(listOf(3L, 6L, 7L), progress)
+        assertEquals(
+            listOf(
+                "https://p/api/v4/file/upload/S1/0",
+                "https://p/api/v4/file/upload/S1/1",
+                "https://p/api/v4/file/upload/S1/2"
+            ),
+            transport.calls.filter { it.method == "POST" }.map { it.url }
+        )
+        // 会话开在哪个路径上，收尾的 uri 就得是哪个，否则占位文件清不掉
+        assertTrue(transport.calls.first().url.startsWith("https://p/api/v4/file/upload?uri=cloudreve%3A%2F%2Fmy%2Fa.bin"))
+    }
+
+    /** 空分片会话（chunk_size=0）意味着「整个文件一片」，循环不能因此卡住。 */
+    @Test
+    fun `a policy without a chunk size sends one piece`() {
+        val transport = Fake { request ->
+            when {
+                request.url.contains("file/upload?uri=") -> ok(localSessionOk)
+                else -> ok("""{"code":0,"data":null}""")
+            }
+        }
+        val bytes = ByteArray(5)
+        runBlocking {
+            CloudreveApi(transport).uploadFile("https://p", "T1", "cloudreve://my/a.bin", bytes.size.toLong(),
+                "application/octet-stream", read = { _, length -> ByteArray(length) })
+        }
+        assertEquals(1, transport.calls.count { it.method == "POST" })
+    }
+
+    @Test
+    fun `the download address is read out of the signed url list`() {
+        val transport = Fake {
+            ok("""{"code":0,"data":{"urls":[{"url":"https://s.work/a.jpg?sign=x"}],"expires":"2026-10-14T13:00:00+08:00"}}""")
+        }
+        val url = runBlocking { CloudreveApi(transport).downloadUrl("https://p", "T1", "cloudreve://my/a.jpg") }
+
+        assertEquals("https://s.work/a.jpg?sign=x", url)
+        val request = transport.calls.single()
+        assertEquals("POST", request.method)
+        assertEquals("https://p/api/v4/file/url", request.url)
+        assertEquals("""{"uris":["cloudreve://my/a.jpg"]}""", request.body)
+    }
+
+    /** 目录走这条路会回 40081，空 urls 也得当成失败说给人听，不能交给下载器一个空地址。 */
+    @Test
+    fun `a missing download url is an error`() {
+        listOf("""{"code":0,"data":{}}""", """{"code":0,"data":{"urls":[]}}""").forEach { body ->
+            val transport = Fake { ok(body) }
+            val e = errorOf(transport) { CloudreveApi(transport).downloadUrl("https://p", "T1", "cloudreve://my/a.jpg") }
+            assertEquals(CloudreveIssue.Unknown, e.issue)
+        }
+    }
+
+    /**
+     * 实测：当年上传没成功留下的空壳记录，取址会回 40081（聚合里是 OneDrive 的 not found）。
+     * 这种情况光看服务端原文只会一脸问号，得直说「文件其实不在了」。
+     */
+    @Test
+    fun `a record with nothing behind it reads as gone`() {
+        listOf(40077, 40081).forEach { code ->
+            val transport = Fake { failure(code, "failed to get source URL: The resource could not be found.") }
+            val e = errorOf(transport) { CloudreveApi(transport).downloadUrl("https://p", "T1", "cloudreve://my/a.jpg") }
+
+            assertEquals(CloudreveIssue.EntityGone, e.issue)
+            assertTrue(e.message.startsWith("网盘里留着这条记录"))
+        }
+    }
+
+    /**
+     * 实测形状：新分享会带 downloaded，老记录缺 remain_downloads / expires，
+     * 目录分享的 source_type 是 1。全部靠默认值兜住。
+     */
+    private val sharesOk =
+        """{"code":0,"data":{"shares":[
+            {"id":"8Lid","name":"mimi.png","url":"/s/8Lid","size":1177657,"visited":3,"downloaded":1,"remain_downloads":0,
+             "is_private":true,"password_protected":true,"password":"qoder777",
+             "expires":"2026-10-20T12:00:00+08:00","created_at":"2026-10-14T10:00:00+08:00","expired":false,"source_type":0},
+            {"id":"9Yke","name":"image","url":"/s/9Yke","size":0,"visited":0,"is_private":false,"source_type":1}
+            ],"pagination":{"page":1,"page_size":10,"next_token":"eyJpZCI6IjlZa2UifQ==","is_cursor":true}}}"""
+
+    @Test
+    fun `the share list asks for the smallest page the server accepts`() {
+        val transport = Fake { ok(sharesOk) }
+        val page = runBlocking { CloudreveApi(transport).listShares("https://p", "T1") }
+
+        val url = transport.calls.single().url
+        assertTrue(url, url.startsWith("https://p/api/v4/share?page=1"))
+        assertTrue(url, url.contains("page_size=10"))
+        assertTrue(url, url.contains("order_by=created_at"))
+        assertFalse(url, url.contains("next_page_token"))
+
+        assertEquals(2, page.shares.size)
+        val first = page.shares[0]
+        assertTrue(first.hasPassword)
+        assertFalse(first.isFolder)
+        assertEquals(1, first.downloaded)
+        assertEquals("eyJpZCI6IjlZa2UifQ==", page.pagination?.nextToken)
+
+        val folder = page.shares[1]
+        assertTrue(folder.isFolder)
+        assertFalse(folder.hasPassword)
+        assertEquals("", folder.expires)
+    }
+
+    @Test
+    fun `the share cursor is encoded like the directory one`() {
+        val transport = Fake { ok(sharesOk) }
+        runBlocking { CloudreveApi(transport).listShares("https://p", "T1", nextToken = "eyJpZCI6IjlZa2UifQ==") }
+        assertTrue(
+            transport.calls.single().url,
+            transport.calls.single().url.endsWith("next_page_token=eyJpZCI6IjlZa2UifQ%3D%3D")
+        )
+    }
+
+    @Test
+    fun `creating a share keeps the link the server built`() {
+        val transport = Fake { ok("""{"code":0,"data":"https://p/s/8Lid/qoder777"}""") }
+        val link = runBlocking {
+            CloudreveApi(transport).createShare("https://p", "T1", "cloudreve://my/a.jpg", "qoder777", 86_400, 0)
+        }
+
+        assertEquals("https://p/s/8Lid/qoder777", link)
+        val request = transport.calls.single()
+        assertEquals("PUT", request.method)
+        assertEquals("https://p/api/v4/share", request.url)
+        // downloads=0（不限次数）是默认值，不写出去；服务端本来也按 0 处理
+        assertEquals(
+            """{"uri":"cloudreve://my/a.jpg","is_private":true,"password":"qoder777","expire":86400}""",
+            request.body
+        )
+    }
+
+    /** 公开、不过期的分享只带 uri：服务端给的默认值就是我们想要的。 */
+    @Test
+    fun `a public share posts only the uri`() {
+        val transport = Fake { ok("""{"code":0,"data":"https://p/s/9Yke"}""") }
+        val link = runBlocking {
+            CloudreveApi(transport).createShare("https://p", "T1", "cloudreve://my/image", "", 0, 0)
+        }
+
+        assertEquals("https://p/s/9Yke", link)
+        assertEquals("""{"uri":"cloudreve://my/image"}""", transport.calls.single().body)
+    }
+
+    @Test
+    fun `a share link that never arrives is an error`() {
+        val transport = Fake { ok("""{"code":0,"data":null}""") }
+        val e = errorOf(transport) {
+            CloudreveApi(transport).createShare("https://p", "T1", "cloudreve://my/a.jpg", "", 0, 0)
+        }
+        assertEquals(CloudreveIssue.Unknown, e.issue)
+    }
+
+    /** 撤销要的是 `/s/` 后面那段 id，把带密码的整条链接塞进去会被判成非法 ID。 */
+    @Test
+    fun `revoking a share deletes it by id`() {
+        val transport = Fake { ok("""{"code":0,"data":null}""") }
+        runBlocking { CloudreveApi(transport).deleteShare("https://p", "T1", "8Lid") }
+
+        val request = transport.calls.single()
+        assertEquals("DELETE", request.method)
+        assertEquals("https://p/api/v4/share/8Lid", request.url)
+        assertEquals("Bearer T1", request.headers["Authorization"])
+    }
 }

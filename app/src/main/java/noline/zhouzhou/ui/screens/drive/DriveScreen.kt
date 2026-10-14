@@ -1,5 +1,7 @@
 package noline.zhouzhou.ui.screens.drive
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +27,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,16 +42,29 @@ import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.theme.noLineCard
 import noline.zhouzhou.ui.typechoViewModel
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
+/** 提示条停留多久：够看完一句话，又不至于挡住下一次操作。分享页也用同一个时长。 */
+const val NoticeLingerMs = 3_500L
+
+/** 分享有效期给的几档，单位是 Cloudreve 要的秒数，0 表示不过期。 */
+private val ShareExpireOptions = listOf(
+    "不过期" to 0,
+    "1 天" to 86_400,
+    "7 天" to 604_800,
+    "30 天" to 2_592_000
+)
+
 /**
- * Cloudreve 网盘管理：浏览、建目录、改名、移动、丢回收站，以及给单个文件手动生成永久直链。
+ * Cloudreve 网盘管理：浏览、上传、下载、建目录、改名、移动、丢回收站，
+ * 以及给单个文件生成永久直链或一条分享。
  * 只做软删除 —— 彻底删除要额外的权限，Cloudreve 会给普通账号 403。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DriveScreen(appContainer: AppContainer, onBack: () -> Unit) {
+fun DriveScreen(appContainer: AppContainer, onBack: () -> Unit, onOpenShares: () -> Unit) {
     val viewModel = typechoViewModel<DriveViewModel>(appContainer) { DriveViewModel(it) }
     val uiState by viewModel.uiState.collectAsState()
     val t = LocalNoLine.current
@@ -57,6 +74,18 @@ fun DriveScreen(appContainer: AppContainer, onBack: () -> Unit) {
     var nodeToRename by remember { mutableStateOf<CloudreveFileNode?>(null) }
     var nodeToMove by remember { mutableStateOf<CloudreveFileNode?>(null) }
     var nodeToDelete by remember { mutableStateOf<CloudreveFileNode?>(null) }
+    var nodeToShare by remember { mutableStateOf<CloudreveFileNode?>(null) }
+
+    val uploadPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(viewModel::upload) }
+
+    LaunchedEffect(uiState.notice) {
+        if (uiState.notice != null) {
+            delay(NoticeLingerMs)
+            viewModel.clearNotice()
+        }
+    }
 
     val listState = rememberLazyListState()
     LaunchedEffect(listState, uiState.nodes.size) {
@@ -122,14 +151,25 @@ fun DriveScreen(appContainer: AppContainer, onBack: () -> Unit) {
         )
     }
 
+    nodeToShare?.let { node ->
+        CreateShareDialog(
+            node = node,
+            onDismiss = { nodeToShare = null },
+            onCreate = { password, expireSeconds ->
+                viewModel.createShare(node, password, expireSeconds)
+                nodeToShare = null
+            }
+        )
+    }
+
     uiState.link?.let { link ->
         AlertDialog(
             onDismissRequest = viewModel::clearLink,
-            title = { Text(stringResource(R.string.drive_direct_link)) },
+            title = { Text(stringResource(R.string.drive_link_ready)) },
             text = {
                 Column {
                     Text(
-                        link.node.name,
+                        link.name,
                         fontSize = 12.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -142,7 +182,7 @@ fun DriveScreen(appContainer: AppContainer, onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "这个地址永久有效，游客也能打开，可以直接贴进文章。",
+                        link.hint,
                         fontSize = 11.5.sp,
                         lineHeight = 16.sp,
                         color = t.textLight
@@ -189,11 +229,25 @@ fun DriveScreen(appContainer: AppContainer, onBack: () -> Unit) {
                             color = t.accent
                         )
                     } else {
+                        // 上传中的进度条自己会说话，这里就不让再点第二次。
+                        IconButton(
+                            onClick = { uploadPicker.launch(arrayOf("*/*")) },
+                            enabled = uiState.upload == null,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(Icons.Default.FileUpload, "上传文件",
+                                modifier = Modifier.size(19.dp),
+                                tint = if (uiState.upload == null) t.textSecondary else t.textLight)
+                        }
                         IconButton(
                             onClick = { folderName = "" },
                             modifier = Modifier.size(38.dp)
                         ) {
                             Icon(Icons.Default.CreateNewFolder, "新建文件夹",
+                                modifier = Modifier.size(19.dp), tint = t.textSecondary)
+                        }
+                        IconButton(onClick = onOpenShares, modifier = Modifier.size(38.dp)) {
+                            Icon(Icons.Default.Share, "分享管理",
                                 modifier = Modifier.size(19.dp), tint = t.textSecondary)
                         }
                         IconButton(onClick = viewModel::reload, modifier = Modifier.size(38.dp)) {
@@ -219,6 +273,15 @@ fun DriveScreen(appContainer: AppContainer, onBack: () -> Unit) {
             uiState.error?.let { message ->
                 ErrorStrip(message = message, onDismiss = viewModel::clearError)
             }
+            uiState.upload?.let { UploadProgress(it) }
+            uiState.notice?.let { message ->
+                Text(
+                    message,
+                    fontSize = 12.5.sp,
+                    color = t.accent,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
 
             when {
                 uiState.isLoading && uiState.nodes.isEmpty() -> {
@@ -243,6 +306,9 @@ fun DriveScreen(appContainer: AppContainer, onBack: () -> Unit) {
                                     else -> viewModel.fetchLink(node)
                                 }
                             },
+                            onDownload = { viewModel.download(node) },
+                            onLink = { viewModel.fetchLink(node) },
+                            onShare = { nodeToShare = node },
                             onRename = { nodeToRename = node },
                             onMove = { nodeToMove = node },
                             onDelete = { nodeToDelete = node }
@@ -355,11 +421,15 @@ private fun CapacityLine(capacity: CloudreveCapacity) {
 private fun DriveRow(
     node: CloudreveFileNode,
     onClick: () -> Unit,
+    onDownload: () -> Unit,
+    onLink: () -> Unit,
+    onShare: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
     onDelete: () -> Unit
 ) {
     val t = LocalNoLine.current
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -396,14 +466,173 @@ private fun DriveRow(
             val meta = if (node.isFolder) node.timeText() else "${node.sizeText()} · ${node.timeText()}"
             Text(meta, fontSize = 11.5.sp, color = t.textLight, maxLines = 1)
         }
+        // 目录不能取下载地址（Cloudreve 会把子项一个个塞进 zip，实测直接 40081），所以只有文件给下载。
         if (!node.isFolder) {
-            RowIconButton(Icons.Default.Link, "生成直链", onClick, t.accent)
+            RowIconButton(Icons.Default.Download, "下载到本机", onDownload, t.accent)
         }
-        RowIconButton(Icons.Default.DriveFileRenameOutline, "重命名", onRename, t.textSecondary)
-        RowIconButton(Icons.Default.DriveFileMove, "移动", onMove, t.textSecondary)
-        RowIconButton(Icons.Default.Delete, "删除", onDelete,
-            MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
+        Box {
+            RowIconButton(Icons.Default.MoreVert, "更多操作", { menuOpen = true }, t.textSecondary)
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (!node.isFolder) {
+                    DriveMenuItem(R.string.drive_direct_link, Icons.Default.Link) {
+                        menuOpen = false
+                        onLink()
+                    }
+                }
+                DriveMenuItem(R.string.share_create, Icons.Default.Share) {
+                    menuOpen = false
+                    onShare()
+                }
+                DriveMenuItem(R.string.drive_rename, Icons.Default.DriveFileRenameOutline) {
+                    menuOpen = false
+                    onRename()
+                }
+                DriveMenuItem(R.string.drive_move, Icons.Default.DriveFileMove) {
+                    menuOpen = false
+                    onMove()
+                }
+                DropdownMenuItem(
+                    text = {
+                        Text(stringResource(R.string.drive_delete), color = MaterialTheme.colorScheme.error)
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.error)
+                    },
+                    onClick = {
+                        menuOpen = false
+                        onDelete()
+                    }
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun DriveMenuItem(
+    labelRes: Int,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = { Text(stringResource(labelRes), fontSize = 14.sp) },
+        leadingIcon = { Icon(icon, null, modifier = Modifier.size(18.dp)) },
+        onClick = onClick
+    )
+}
+
+/** 顶部那条上传进度：名字 + 已送/共 + 一根进度条，传完就自己消失。 */
+@Composable
+private fun UploadProgress(upload: DriveUpload) {
+    val t = LocalNoLine.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(t.surfaceSunken)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.drive_uploading, upload.name),
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = t.textMain,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${capacityText(upload.done)} / ${capacityText(upload.total)}",
+                fontSize = 11.5.sp,
+                color = t.textSecondary
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = { upload.fraction },
+            modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+            color = t.accent,
+            trackColor = t.cardBg
+        )
+    }
+}
+
+/**
+ * 建分享：提取码可选（Cloudreve 只收字母数字、最长 32 位），有效期给四档。
+ * 链接本身是公开还是私密由服务端决定，这里只负责把规格说清楚。
+ */
+@Composable
+private fun CreateShareDialog(
+    node: CloudreveFileNode,
+    onDismiss: () -> Unit,
+    onCreate: (String, Int) -> Unit
+) {
+    val t = LocalNoLine.current
+    var password by remember { mutableStateOf("") }
+    var expireSeconds by remember { mutableStateOf(0) }
+
+    val trimmed = password.trim()
+    // 服务端是 alphanum 校验，这里先挡一道，免得点完只拿到一句笼统的 40001。
+    val passwordOk = trimmed.isBlank() ||
+        (trimmed.length <= 32 && trimmed.all { it.isLetterOrDigit() })
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.share_create)) },
+        text = {
+            Column {
+                Text(
+                    node.name + if (node.isFolder) "（整个目录）" else "（${node.sizeText()}）",
+                    fontSize = 12.5.sp,
+                    color = t.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.share_password_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    supportingText = { Text(stringResource(R.string.share_password_rule)) },
+                    isError = !passwordOk
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(stringResource(R.string.share_expire_label), fontSize = 12.sp, color = t.textMain)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    ShareExpireOptions.forEach { (label, seconds) ->
+                        val selected = seconds == expireSeconds
+                        Text(
+                            label,
+                            fontSize = 12.5.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (selected) t.onBrand else t.textSecondary,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (selected) t.accent else t.surfaceSunken)
+                                .clickable { expireSeconds = seconds }
+                                .padding(horizontal = 11.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onCreate(trimmed, expireSeconds) },
+                enabled = passwordOk
+            ) { Text(stringResource(R.string.action_share)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        }
+    )
 }
 
 @Composable

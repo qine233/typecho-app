@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
  * 错误码含义和博客里写的并不完全一样。
  */
 enum class CloudreveIssue {
-    BadInput, WrongPassword, Captcha, TwoFactor, NotLoggedIn, NoPermission, NotFound,
+    BadInput, WrongPassword, Captcha, TwoFactor, NotLoggedIn, NoPermission, NotFound, EntityGone,
     SignExpired, SessionExpired, TooLarge, TypeNotAllowed, NoCapacity, IllegalName,
     FeatureOff, Network, SilentFailure, IoFailed, ChunkMismatch, Unknown
 }
@@ -107,6 +107,40 @@ data class CloudreveCapacity(
         get() = if (hasQuota) (used.toFloat() / total).coerceIn(0f, 1f) else 0f
 }
 
+/**
+ * 一条分享链接。列表接口和详情接口给的不是同一套字段：刚建的分享没有 downloaded 计数，
+ * 老分享又缺 remain_downloads，所以全部留默认值。
+ * @param sourceType Cloudreve 的文件类型枚举，0 文件、1 目录。
+ */
+@Serializable
+data class CloudreveShare(
+    val id: String = "",
+    val name: String = "",
+    val url: String = "",
+    val size: Long = 0,
+    val visited: Int = 0,
+    val downloaded: Int = 0,
+    @SerialName("remain_downloads") val remainDownloads: Int = 0,
+    @SerialName("is_private") val isPrivate: Boolean = false,
+    @SerialName("password_protected") val passwordProtected: Boolean = false,
+    val password: String = "",
+    val expires: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+    val expired: Boolean = false,
+    @SerialName("source_type") val sourceType: Int = 0
+) {
+    val isFolder: Boolean get() = sourceType == 1
+
+    /** 私密分享的链接本身就带着密码段，复制出去对方直接能进。 */
+    val hasPassword: Boolean get() = passwordProtected || password.isNotBlank()
+}
+
+@Serializable
+data class CloudreveSharePage(
+    val shares: List<CloudreveShare> = emptyList(),
+    val pagination: CloudrevePageInfo? = null
+)
+
 @Serializable
 data class CloudrevePolicyHint(
     val type: String = "",
@@ -143,6 +177,9 @@ data class CloudreveRaw(val status: Int, val body: String)
 fun interface CloudreveTransport {
     suspend fun execute(request: CloudreveRequest): CloudreveRaw
 }
+
+/** 读文件的一段：start 是文件内偏移，length 是本片长度。 */
+typealias CloudreveChunkReader = suspend (start: Long, length: Int) -> ByteArray
 
 class OkHttpCloudreveTransport(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -212,6 +249,15 @@ private data class RenameBody(val uri: String, @SerialName("new_name") val newNa
 @Serializable
 private data class MoveBody(val uris: List<String>, val dst: String)
 
+@Serializable
+private data class ShareBody(
+    val uri: String,
+    @SerialName("is_private") val isPrivate: Boolean = false,
+    val password: String = "",
+    val downloads: Int = 0,
+    val expire: Int = 0
+)
+
 
 class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTransport()) {
 
@@ -239,9 +285,21 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
      * v4 没有「一发入魂」的上传口子（`PUT /file/content` 是在线编辑改内容，不是上传）。
      * 正规三步：建会话 → 按会话给的 chunk_size 分片送 → 直传策略再回主机报一声传完了，
      * 占位文件才会转正。
+     *
+     * @param read 按「文件内偏移 + 本片长度」取字节，让调用方可以从文件描述符里一段段读，
+     *   不必把整个文件先搬进内存。
+     * @param onProgress 每送完一片回调一次已送字节数。
      */
-    suspend fun uploadFile(site: String, token: String, uri: String, bytes: ByteArray, mimeType: String) {
-        val total = bytes.size.toLong()
+    suspend fun uploadFile(
+        site: String,
+        token: String,
+        uri: String,
+        size: Long,
+        mimeType: String,
+        read: CloudreveChunkReader,
+        onProgress: (Long) -> Unit = {}
+    ) {
+        val total = size
         val ticket = createUploadSession(site, token, uri, total, mimeType)
         if (ticket.sessionId.isBlank()) {
             throw CloudreveException(0, CloudreveIssue.Unknown, "Cloudreve 没有返回上传会话")
@@ -252,10 +310,11 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
             var index = 0
             var sent = 0L
             while (sent < total) {
-                val size = minOf(chunkSize, total - sent).toInt()
-                putChunk(site, token, ticket, bytes.copyOfRange(sent.toInt(), sent.toInt() + size), index, total)
-                sent += size
+                val length = minOf(chunkSize, total - sent).toInt()
+                putChunk(site, token, ticket, read(sent, length), index, total)
+                sent += length
                 index += 1
+                onProgress(sent)
             }
             if (ticket.directToStorage) notifyUploaded(site, token, ticket)
         } catch (e: Exception) {
@@ -264,6 +323,22 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
             throw e
         }
     }
+
+    /** 编辑器压完图本来就是一把字节，走同一个分片循环。返回类型必须写死，否则和上面那个重载互相解析不出来。 */
+    suspend fun uploadFile(
+        site: String,
+        token: String,
+        uri: String,
+        bytes: ByteArray,
+        mimeType: String
+    ): Unit = uploadFile(
+        site = site,
+        token = token,
+        uri = uri,
+        size = bytes.size.toLong(),
+        mimeType = mimeType,
+        read = { start, length -> bytes.copyOfRange(start.toInt(), (start + length).toInt()) }
+    )
 
     private suspend fun createUploadSession(
         site: String, token: String, uri: String, size: Long, mimeType: String
@@ -390,6 +465,61 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
         call("DELETE", apiUrl(site, "file"), token, body = json.encodeToString(SourceBody(uris)))
     }
 
+    /**
+     * 取一次性的签名下载地址（`POST /file/url`）。OneDrive 这类策略直接给存储端的预签名地址，
+     * 默认一小时过期，所以只拿来立刻下载，别存进文章 —— 贴图要用 [directLink]。
+     * 目录不走这个口（会回 40077 Entity not exist）。
+     */
+    suspend fun downloadUrl(site: String, token: String, uri: String): String {
+        val data = call("POST", apiUrl(site, "file/url"), token, body = json.encodeToString(SourceBody(listOf(uri))))
+        val first = data?.jsonObject?.get("urls")?.jsonArray?.firstOrNull()?.jsonObject
+        val url = first?.get("url")?.jsonPrimitive?.content.orEmpty()
+        if (url.isBlank()) throw CloudreveException(0, CloudreveIssue.Unknown, "Cloudreve 没有返回下载地址")
+        return url
+    }
+
+    /** 列出自己的分享。page_size 有下限（给 5 会直接 40001 PageSize too short），翻页沿用目录那套游标。 */
+    suspend fun listShares(site: String, token: String, nextToken: String? = null): CloudreveSharePage {
+        val query = buildList {
+            add("page=1")
+            add("page_size=$SharePageSize")
+            add("order_by=created_at")
+            add("order_direction=desc")
+            if (!nextToken.isNullOrBlank()) add("next_page_token=${encode(nextToken)}")
+        }.joinToString("&")
+        return decode(
+            call("GET", apiUrl(site, "share") + "?$query", token),
+            CloudreveSharePage.serializer()
+        )
+    }
+
+    /**
+     * 建分享，返回拼好的完整链接：私密分享会把密码当路径段缀在后面（`/s/<id>/<密码>`），复制出去对方直接能进。
+     * @param expireSeconds 多少秒后过期，0 表示不过期
+     * @param remainDownloads 剩余可下载次数，0 表示不限
+     */
+    suspend fun createShare(
+        site: String,
+        token: String,
+        uri: String,
+        password: String,
+        expireSeconds: Int,
+        remainDownloads: Int
+    ): String {
+        val body = json.encodeToString(
+            ShareBody(uri, password.isNotBlank(), password, remainDownloads, expireSeconds)
+        )
+        val data = call("PUT", apiUrl(site, "share"), token, body = body)
+        val link = data?.jsonPrimitive?.content.orEmpty()
+        if (link.isBlank()) throw CloudreveException(0, CloudreveIssue.Unknown, "Cloudreve 没有返回分享链接")
+        return link
+    }
+
+    /** 撤销一条分享。id 是链接里 `/s/` 后面那一段，不含密码。 */
+    suspend fun deleteShare(site: String, token: String, id: String) {
+        call("DELETE", apiUrl(site, "share/$id"), token)
+    }
+
     // ── 内部 ──
 
     private suspend fun call(
@@ -441,6 +571,7 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
         40019 -> CloudreveIssue.FeatureOff
         40026, 40027 -> CloudreveIssue.Captcha
         40044, 40016 -> CloudreveIssue.NotFound
+        40077, 40081 -> CloudreveIssue.EntityGone
         40049 -> CloudreveIssue.TooLarge
         40050 -> CloudreveIssue.TypeNotAllowed
         40051 -> CloudreveIssue.NoCapacity
@@ -461,6 +592,7 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
         CloudreveIssue.SignExpired -> "链接签名已过期"
         CloudreveIssue.NoPermission -> "这个 Cloudreve 账号没有上传或开外链的权限"
         CloudreveIssue.NotFound -> "站点上没有这个文件或接口，确认地址填的是 Cloudreve 本体"
+        CloudreveIssue.EntityGone -> "网盘里留着这条记录，但存储端已经没有这个文件了，多半是当初上传没成功的空壳"
         CloudreveIssue.TooLarge -> "图片超过 Cloudreve 的单次上传上限"
         CloudreveIssue.NoCapacity -> "Cloudreve 剩余空间不够"
         CloudreveIssue.TypeNotAllowed -> "Cloudreve 的存储策略不允许这个文件类型"
@@ -495,6 +627,8 @@ class CloudreveApi(private val transport: CloudreveTransport = OkHttpCloudreveTr
             site.trim().trimEnd('/') + "/api/v4/" + path
 
         private const val DefaultPageSize = 100
+        // 分享列表的下限比目录严：page_size 给 5 会被直接拒成 40001。
+        private const val SharePageSize = 10
         private const val OrderBy = "name"
         private const val OrderDirection = "asc"
 

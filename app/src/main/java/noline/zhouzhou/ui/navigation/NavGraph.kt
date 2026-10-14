@@ -27,6 +27,7 @@ import noline.zhouzhou.ui.screens.admin.CommentsScreen
 import noline.zhouzhou.ui.screens.admin.PagesScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
 import noline.zhouzhou.ui.screens.drive.DriveScreen
+import noline.zhouzhou.ui.screens.drive.ShareScreen
 import noline.zhouzhou.ui.screens.editor.EditorScreen
 import noline.zhouzhou.ui.screens.health.HealthScreen
 import noline.zhouzhou.ui.screens.home.HomeScreen
@@ -57,6 +58,7 @@ sealed class Screen(val route: String) {
     data object Pages : Screen("admin/pages")
     data object Categories : Screen("admin/categories")
     data object Drive : Screen("cloudreve/drive")
+    data object Shares : Screen("cloudreve/shares")
 }
 
 private val HomeTab = TabSpec(
@@ -224,6 +226,14 @@ fun TypechoNavHost(
 
             composable(Screen.Drive.route) {
                 DriveScreen(
+                    appContainer = appContainer,
+                    onBack = { navController.popBackStack() },
+                    onOpenShares = { navController.navigate(Screen.Shares.route) }
+                )
+            }
+
+            composable(Screen.Shares.route) {
+                ShareScreen(
                     appContainer = appContainer,
                     onBack = { navController.popBackStack() }
                 )

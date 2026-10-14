@@ -1,10 +1,15 @@
 package noline.zhouzhou.ui.screens.drive
 
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
+import android.app.DownloadManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.remote.CloudreveCapacity
 import noline.zhouzhou.data.remote.CloudreveFileNode
+import noline.zhouzhou.data.repository.CloudreveRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +21,13 @@ const val DriveRootUri = "cloudreve://my"
 
 data class DriveCrumb(val label: String, val uri: String)
 
-data class DriveLink(val node: CloudreveFileNode, val url: String)
+/** 弹层里展示的一条链接：直链或分享链接都走它，hint 说清这条会不会过期。 */
+data class DriveLink(val name: String, val url: String, val hint: String)
+
+/** 一次正在进行的上传，用来在页面顶部画进度。 */
+data class DriveUpload(val name: String, val done: Long, val total: Long) {
+    val fraction: Float get() = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
+}
 
 data class DriveUiState(
     val dirUri: String = DriveRootUri,
@@ -27,9 +38,12 @@ data class DriveUiState(
     /** 建目录/重命名/移动/删除正在跑，用来挡住重复点击。 */
     val isBusy: Boolean = false,
     val error: String? = null,
-    /** 取直链是「点了等结果」的动作，取到就弹一层带链接的对话框。 */
+    /** 下载这种「成功没东西可看」的动作给一句短提示，几秒后自己消失。 */
+    val notice: String? = null,
+    /** 取直链/建分享都是「点了等结果」，拿到就弹一层带链接的对话框。 */
     val link: DriveLink? = null,
     val isFetchingLink: Boolean = false,
+    val upload: DriveUpload? = null,
     /** 只是页面顶部一行说明，取不到就整块不显示，不占错误位。 */
     val capacity: CloudreveCapacity? = null
 )
@@ -153,12 +167,113 @@ class DriveViewModel(private val container: AppContainer) : ViewModel() {
             _uiState.update { it.copy(isFetchingLink = true, error = null) }
             container.cloudreveRepository.directLink(node).fold(
                 onSuccess = { url ->
-                    _uiState.update { it.copy(isFetchingLink = false, link = DriveLink(node, url)) }
+                    _uiState.update {
+                        it.copy(
+                            isFetchingLink = false,
+                            link = DriveLink(node.name, url, "这个地址永久有效，游客也能打开，贴进文章不会失效。")
+                        )
+                    }
                 },
                 onFailure = { e -> _uiState.update { it.copy(isFetchingLink = false, error = e.message) } }
             )
         }
     }
+
+    /** 建分享。密码留空就是公开链接；有效期 0 表示不过期。 */
+    fun createShare(node: CloudreveFileNode, password: String, expireSeconds: Int) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isBusy = true, error = null) }
+            val result = container.cloudreveRepository.createShare(node, password, expireSeconds, 0)
+            _uiState.update { it.copy(isBusy = false, error = result.exceptionOrNull()?.message) }
+            val url = result.getOrNull() ?: return@launch
+            _uiState.update { it.copy(link = DriveLink(node.name, url, shareHint(password, expireSeconds))) }
+        }
+    }
+
+    // ── 上传 / 下载 ──
+
+    /** 选完本地文件就传到当前目录；同名会自动加序号，免得撞上存储端的 fail 行为。 */
+    fun upload(document: Uri) {
+        val context = container.application
+        viewModelScope.launch {
+            val source = DriveSource.of(context.contentResolver, document)
+            if (source == null) {
+                _uiState.update { it.copy(error = "读不到这个文件，换一个试试") }
+                return@launch
+            }
+            if (source.size < 0L) {
+                _uiState.update { it.copy(error = "读不到 ${source.name} 的大小，传不了") }
+                return@launch
+            }
+            if (source.size == 0L) {
+                _uiState.update { it.copy(error = "这个文件是空的，Cloudreve 不收") }
+                return@launch
+            }
+            val name = uniqueName(source.name)
+            val uri = CloudreveRepository.childUri(_uiState.value.dirUri, name)
+            _uiState.update { it.copy(upload = DriveUpload(name, 0L, source.size), error = null, notice = null) }
+            val result = container.cloudreveRepository.uploadFile(
+                uri = uri,
+                size = source.size,
+                mimeType = source.mimeType,
+                read = source::read
+            ) { sent ->
+                _uiState.update { it.copy(upload = DriveUpload(name, sent, source.size)) }
+            }
+            source.close()
+            result.fold(
+                onSuccess = {
+                    _uiState.update { it.copy(upload = null, notice = "已上传 $name") }
+                    reload()
+                },
+                onFailure = { e -> _uiState.update { it.copy(upload = null, error = e.message) } }
+            )
+        }
+    }
+
+    /** 取一次性的签名地址，交给系统下载器，进度在通知栏看。 */
+    fun download(node: CloudreveFileNode) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(error = null) }
+            container.cloudreveRepository.downloadUrl(node).fold(
+                onSuccess = { url -> enqueue(node.name, url) },
+                onFailure = { e -> _uiState.update { it.copy(error = e.message) } }
+            )
+        }
+    }
+
+    private fun enqueue(name: String, url: String) {
+        val context = container.application
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+        if (manager == null) {
+            _uiState.update { it.copy(error = "这台设备没有系统下载器") }
+            return
+        }
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle(name)
+            .setDescription("来自 Cloudreve")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+        runCatching { manager.enqueue(request) }
+            .onSuccess { _uiState.update { it.copy(notice = "已加入下载队列，在通知栏看进度") } }
+            .onFailure { _uiState.update { it.copy(error = "系统下载器没接受这个任务") } }
+    }
+
+    /** 上传同名会直接被存储端拒掉，所以先在当前这一页里避开重名。 */
+    private fun uniqueName(raw: String): String {
+        val taken = _uiState.value.nodes.map { it.name }.toSet()
+        if (raw !in taken) return raw
+        val stem = raw.substringBeforeLast('.', raw)
+        val ext = raw.substringAfterLast('.', "")
+        var index = 1
+        while (true) {
+            val candidate = if (ext.isEmpty()) "$stem($index)" else "$stem($index).$ext"
+            if (candidate !in taken) return candidate
+            index += 1
+        }
+    }
+
+    fun clearNotice() = _uiState.update { it.copy(notice = null) }
 
     fun clearLink() = _uiState.update { it.copy(link = null) }
 
@@ -176,6 +291,16 @@ class DriveViewModel(private val container: AppContainer) : ViewModel() {
             state.copy(nodes = state.nodes.filterNot { it.path == node.path })
         }
     }
+}
+
+/** 分享链接的有效期和提取码，用一句话讲清楚对方会看到什么。 */
+fun shareHint(password: String, expireSeconds: Int): String {
+    val life = when {
+        expireSeconds <= 0 -> "长期有效"
+        expireSeconds % 86400 == 0 -> "${expireSeconds / 86400} 天后失效"
+        else -> "${expireSeconds / 3600} 小时后失效"
+    }
+    return if (password.isBlank()) "任何人打开就能看，$life。" else "链接末尾已经带上提取码，对方不用手输，$life。"
 }
 
 /** 面包屑自己从 dirUri 推出来，跳回任意一层都不用另存一条栈。 */

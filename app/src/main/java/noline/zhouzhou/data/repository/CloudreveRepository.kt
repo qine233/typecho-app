@@ -3,10 +3,13 @@ package noline.zhouzhou.data.repository
 import noline.zhouzhou.data.model.CloudreveConfig
 import noline.zhouzhou.data.remote.CloudreveApi
 import noline.zhouzhou.data.remote.CloudreveCapacity
+import noline.zhouzhou.data.remote.CloudreveChunkReader
 import noline.zhouzhou.data.remote.CloudreveException
 import noline.zhouzhou.data.remote.CloudreveFileNode
 import noline.zhouzhou.data.remote.CloudreveIssue
 import noline.zhouzhou.data.remote.CloudreveListing
+import noline.zhouzhou.data.remote.CloudreveShare
+import noline.zhouzhou.data.remote.CloudreveSharePage
 import noline.zhouzhou.data.remote.isAuthFailure
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -94,6 +97,51 @@ class CloudreveRepository(
     suspend fun directLink(node: CloudreveFileNode): Result<String> = runCatching {
         val config = requireConfig()
         withToken(config) { api.directLink(config.site, it, node.path) }
+    }
+
+    /** 一次性的签名下载地址，默认一小时过期，只够交给下载器立刻取。 */
+    suspend fun downloadUrl(node: CloudreveFileNode): Result<String> = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.downloadUrl(config.site, it, node.path) }
+    }
+
+    // ── 分享 ──
+
+    suspend fun shares(nextToken: String? = null): Result<CloudreveSharePage> = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.listShares(config.site, it, nextToken) }
+    }
+
+    /** @return 完整分享链接（私密时后面已经拼好了密码段）。 */
+    suspend fun createShare(
+        node: CloudreveFileNode,
+        password: String,
+        expireSeconds: Int,
+        remainDownloads: Int
+    ): Result<String> = runCatching {
+        val config = requireConfig()
+        withToken(config) {
+            api.createShare(config.site, it, node.path, password, expireSeconds, remainDownloads)
+        }
+    }
+
+    suspend fun deleteShare(share: CloudreveShare): Result<Unit> = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.deleteShare(config.site, it, share.id) }
+    }
+
+    /**
+     * 把本地一个文件传到网盘。uri 由调用方拼好（含文件名），进度每送完一片回一次。
+     */
+    suspend fun uploadFile(
+        uri: String,
+        size: Long,
+        mimeType: String,
+        read: CloudreveChunkReader,
+        onProgress: (Long) -> Unit = {}
+    ): Result<Unit> = runCatching {
+        val config = requireConfig()
+        withToken(config) { api.uploadFile(config.site, it, uri, size, mimeType, read, onProgress) }
     }
 
     suspend fun isConfigured(): Boolean = configOf().isComplete

@@ -126,7 +126,20 @@
     <string name="drive_delete">删除</string>
     <string name="drive_delete_confirm">确定要把「%1$s」丢进回收站吗？Cloudreve 默认保留 7 天，网站后台还能捞回来。</string>
     <string name="drive_direct_link">直链</string>
+    <string name="drive_link_ready">链接已生成</string>
     <string name="drive_name_hint">名称</string>
     <string name="drive_name_rule">不能包含斜杠</string>
-    <string name="drive_empty_hint">这里还没有文件。传图可以回 App 的编辑器里插，整理目录就在这里动手。</string>
+    <string name="drive_empty_hint">这一层还没有文件。点上面的上传按钮选本地文件，或者先建个文件夹。</string>
+    <string name="drive_uploading">正在上传 %1$s</string>
+
+    <!-- Cloudreve 分享 -->
+    <string name="share_title">分享管理</string>
+    <string name="share_create">创建分享</string>
+    <string name="share_password_hint">提取码（留空即公开）</string>
+    <string name="share_password_rule">只能用字母或数字，最长 32 位</string>
+    <string name="share_expire_label">有效期</string>
+    <string name="share_empty">还没有创建过分享。在网盘里选中文件，从更多菜单里点「创建分享」。</string>
+    <string name="share_revoke">撤销分享</string>
+    <string name="share_revoke_confirm">确定要撤销这条分享吗？链接会立刻打不开，文件本身不受影响。</string>
+    <string name="share_expired">已过期</string>
 </resources>
