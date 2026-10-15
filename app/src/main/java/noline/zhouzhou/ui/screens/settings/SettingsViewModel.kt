@@ -3,6 +3,7 @@ package noline.zhouzhou.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import noline.zhouzhou.AppContainer
+import noline.zhouzhou.data.remote.GithubMirror
 import noline.zhouzhou.data.remote.NolineException
 import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.data.repository.NolineReport
@@ -45,6 +46,7 @@ data class SettingsUiState(
     val cloudreveChecking: Boolean = false,
     val cloudreveCheck: CloudreveCheck? = null,
     val cloudreveToast: String = "",
+    val updateMirrorId: String = GithubMirror.GhProxyCom.id,
     val update: UpdateState? = null
 )
 
@@ -130,6 +132,18 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                 }
             }
         }
+        viewModelScope.launch {
+            container.settingsRepository.updateMirror.collect { mirror ->
+                _uiState.update { it.copy(updateMirrorId = mirror.id) }
+            }
+        }
+    }
+
+    /** 当前选中的更新来源；界面只存 id，动手时换成枚举。 */
+    private fun preferredMirror(): GithubMirror = GithubMirror.fromId(_uiState.value.updateMirrorId)
+
+    fun setUpdateMirror(mirror: GithubMirror) {
+        viewModelScope.launch { container.settingsRepository.setUpdateMirror(mirror) }
     }
 
     fun setDarkMode(mode: String) {
@@ -273,7 +287,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             _uiState.update { it.copy(update = UpdateState.Downloading(info, 0f)) }
             var lastPercent = -1
             try {
-                val file = container.updateRepository.download(info) { progress ->
+                val file = container.updateRepository.download(info, preferredMirror()) { progress ->
                     val percent = (progress * 100).toInt()
                     if (percent != lastPercent) {
                         lastPercent = percent

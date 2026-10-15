@@ -1,5 +1,6 @@
 package noline.zhouzhou.data.remote
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -16,8 +17,18 @@ const val ReleaseRepoName = "typecho-app"
 data class ReleaseAsset(
     val name: String = "",
     val size: Long = 0,
+    /** GitHub 给资产带的校验和，形如 `sha256:hex`；老仓库或第三方发布可能没有。 */
+    val digest: String = "",
     @SerialName("browser_download_url") val downloadUrl: String = ""
 )
+
+/** 只留十六进制部分，前缀不是 sha256 就当没有（没法比就不比）。 */
+fun ReleaseAsset.sha256Hex(): String? {
+    val parts = digest.trim().split(':', limit = 2)
+    if (parts.size != 2) return null
+    if (!parts[0].equals("sha256", ignoreCase = true)) return null
+    return parts[1].lowercase().takeIf { it.isNotBlank() }
+}
 
 @Serializable
 data class Release(
@@ -67,18 +78,55 @@ class GithubApi(
         explicitNulls = false
     }
 
-    /** 最新正式版；草稿和预发布 GitHub 自己会排除。 */
+    /**
+     * 最新正式版；草稿和预发布 GitHub 自己会排除。
+     *
+     * 逐来源试，因为镜像站的可能结果没有一种是「没更新」：只转文件的会把 api 请求挡成 403，
+     * 挂了的给你个 200 的 HTML 错误页，所以解析失败也得往下一家走，最后再合并成人话。
+     * 这里不看用户挑的更新来源：接口一次几百字节，直连实测 0.7 秒就回，
+     * 而 apk 的 sha256 是从这份返回里读的，接口尽量信得过。
+     */
     suspend fun latestRelease(): Release {
-        val raw = transport.get(
-            "https://api.github.com/repos/$ReleaseRepoOwner/$ReleaseRepoName/releases/latest"
-        )
-        when {
-            raw.status == 404 -> throw GithubException("这个仓库还没有发布过版本")
-            raw.status == 403 || raw.status == 429 ->
-                throw GithubException("GitHub 接口限流了，过一小时再试")
-            raw.status !in 200..299 -> throw GithubException("GitHub 返回了 ${raw.status}")
+        val chain = apiChain()
+        val url = "https://api.github.com/repos/$ReleaseRepoOwner/$ReleaseRepoName/releases/latest"
+        var sawNotFound = false
+        var sawRateLimit = false
+        var sawGarbage = false
+        var sawNetworkFailure = false
+        for (mirror in chain) {
+            val raw = try {
+                transport.get(viaMirror(mirror, url))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                sawNetworkFailure = true
+                continue
+            }
+            when (raw.status) {
+                404 -> {
+                    sawNotFound = true
+                    continue
+                }
+                403, 429 -> {
+                    sawRateLimit = true
+                    continue
+                }
+            }
+            if (raw.status !in 200..299) {
+                sawGarbage = true
+                continue
+            }
+            val release = runCatching { json.decodeFromString(Release.serializer(), raw.body) }.getOrNull()
+            if (release != null && release.tagName.isNotBlank()) return release
+            sawGarbage = true
         }
-        return runCatching { json.decodeFromString(Release.serializer(), raw.body) }
-            .getOrElse { throw GithubException("发布信息读不懂，可能接口改了字段") }
+        throw GithubException(
+            when {
+                sawNotFound -> "这个仓库还没有发布过版本"
+                sawRateLimit -> "GitHub 接口限流了，过一小时再试"
+                sawGarbage -> "发布信息读不懂，试了 ${chain.size} 个来源都不像正常的版本数据"
+                else -> "GitHub 和镜像站都没连上"
+            }
+        )
     }
 }

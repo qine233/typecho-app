@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import noline.zhouzhou.data.model.CloudreveConfig
 import noline.zhouzhou.data.model.SiteConfig
+import noline.zhouzhou.data.remote.GithubMirror
 import noline.zhouzhou.data.remote.UrlForm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -36,6 +37,7 @@ class SettingsRepository(private val context: Context) {
         val CLOUDREVE_SITE = stringPreferencesKey("cloudreve_site")
         val CLOUDREVE_EMAIL = stringPreferencesKey("cloudreve_email")
         val CLOUDREVE_PASSWORD = stringPreferencesKey("cloudreve_password_cipher")
+        val UPDATE_MIRROR = stringPreferencesKey("update_mirror_id")
     }
 
     val siteConfig: Flow<SiteConfig> = context.dataStore.data.map { prefs ->
@@ -130,6 +132,17 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setNolineUrlForm(form: UrlForm) {
         context.dataStore.edit { it[Keys.NOLINE_URL_FORM] = form.name }
+    }
+
+    // ── 更新来源 ──
+
+    /** 只存来源 id：镜像站说没就没，认不出旧值时 GithubMirror.fromId 会退回直连。 */
+    val updateMirror: Flow<GithubMirror> = context.dataStore.data.map { prefs ->
+        GithubMirror.fromId(prefs[Keys.UPDATE_MIRROR])
+    }
+
+    suspend fun setUpdateMirror(mirror: GithubMirror) {
+        context.dataStore.edit { it[Keys.UPDATE_MIRROR] = mirror.id }
     }
 
     // ── Cloudreve 图床 ──

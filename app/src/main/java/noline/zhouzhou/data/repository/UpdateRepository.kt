@@ -1,15 +1,21 @@
 package noline.zhouzhou.data.repository
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import noline.zhouzhou.BuildConfig
 import noline.zhouzhou.data.remote.GithubApi
 import noline.zhouzhou.data.remote.GithubException
+import noline.zhouzhou.data.remote.GithubMirror
 import noline.zhouzhou.data.remote.Release
+import noline.zhouzhou.data.remote.downloadChain
+import noline.zhouzhou.data.remote.sha256Hex
+import noline.zhouzhou.data.remote.viaMirror
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /** 一个可以装的版本。version 已从 tag 里剥掉 v 前缀。 */
@@ -19,6 +25,8 @@ data class UpdateInfo(
     val assetName: String,
     val downloadUrl: String,
     val sizeBytes: Long,
+    /** GitHub API 给的 sha256（十六进制，小写）；老发布可能没有。 */
+    val sha256Hex: String?,
     val pageUrl: String
 )
 
@@ -53,6 +61,7 @@ internal fun resolveUpdate(
             assetName = asset.name,
             downloadUrl = asset.downloadUrl,
             sizeBytes = asset.size,
+            sha256Hex = asset.sha256Hex(),
             pageUrl = release.htmlUrl
         )
     )
@@ -95,37 +104,102 @@ class UpdateRepository(
     suspend fun check(): UpdateOutcome =
         resolveUpdate(api.latestRelease(), currentVersion, wantsDebug)
 
-    /** 下到缓存目录，边下边回调进度（0f..1f）。返回交给系统安装器的文件。 */
-    suspend fun download(update: UpdateInfo, onProgress: (Float) -> Unit): File =
-        withContext(Dispatchers.IO) {
-            val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-            dir.listFiles()?.forEach { it.delete() }
-            val target = File(dir, "update.apk")
+    /**
+     * 下到缓存目录，边下边回调进度（0f..1f）。返回交给系统安装器的文件。
+     *
+     * 一个来源没成（连不上、非 2xx、大小对不上、开头的 zip magic 都不是）就换下一个，
+     * 因为镜像站是会挂的，而装错了包比装不上更糟。
+     */
+    suspend fun download(
+        update: UpdateInfo,
+        preferred: GithubMirror = GithubMirror.GhProxyCom,
+        onProgress: (Float) -> Unit
+    ): File = withContext(Dispatchers.IO) {
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        val target = File(dir, "update.apk")
 
-            val request = Request.Builder()
-                .url(update.downloadUrl)
-                .header("User-Agent", "NLecho-Android")
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw GithubException("下载没成：${response.code}")
-                val body = response.body ?: throw GithubException("下载没成：响应是空的")
-                val total = body.contentLength().takeIf { it > 0 } ?: update.sizeBytes
-                var written = 0L
-                body.byteStream().use { input ->
-                    target.outputStream().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            output.write(buffer, 0, read)
-                            written += read
-                            if (total > 0) onProgress((written.toFloat() / total).coerceIn(0f, 1f))
-                        }
-                        output.flush()
+        var failure = "所有来源都没能下下这个包"
+        for (mirror in downloadChain(preferred)) {
+            val size = try {
+                fetch(viaMirror(mirror, update.downloadUrl), target, update.sizeBytes, onProgress)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failure = "${mirror.label}：${e.message ?: "下载中断"}"
+                continue
+            }
+            if (update.sizeBytes > 0 && size != update.sizeBytes) {
+                failure = "${mirror.label} 拿到的包大小不对（$size / ${update.sizeBytes} 字节）"
+                continue
+            }
+            if (!looksLikeApk(target)) {
+                failure = "${mirror.label} 给的不是 apk"
+                continue
+            }
+            // 自更新走第三方镜像，唯一的凭据是 GitHub 接口里那份 sha256（接口本身经 TLS 拿的）：
+            // 比对上了才交给安装器，否则换下一个来源。
+            val expected = update.sha256Hex
+            if (expected != null && sha256HexOf(target) != expected) {
+                failure = "${mirror.label} 的包校验和对不上，可能被动过或没下完"
+                continue
+            }
+            return@withContext target
+        }
+        throw GithubException(failure)
+    }
+
+    /** 落盘 [target]，返回实际写出的字节数。 */
+    private suspend fun fetch(
+        url: String,
+        target: File,
+        expectedSize: Long,
+        onProgress: (Float) -> Unit
+    ): Long {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "NLecho-Android")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw GithubException("下载没成：${response.code}")
+            val body = response.body ?: throw GithubException("下载没成：响应是空的")
+            val total = body.contentLength().takeIf { it > 0 } ?: expectedSize
+            var written = 0L
+            body.byteStream().use { input ->
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        written += read
+                        if (total > 0) onProgress((written.toFloat() / total).coerceIn(0f, 1f))
                     }
+                    output.flush()
                 }
             }
-            if (target.length() <= 0L) throw GithubException("下载下来是个空文件")
-            target
         }
+        return target.length()
+    }
+
+    private fun looksLikeApk(file: File): Boolean {
+        val magic = ByteArray(4)
+        file.inputStream().use { if (it.read(magic) != magic.size) return false }
+        // apk 就是 zip，头部固定 PK\x03\x04；镜像站失效时常见的是回一段 HTML。
+        return magic[0] == 0x50.toByte() && magic[1] == 0x4B.toByte() &&
+            magic[2] == 0x03.toByte() && magic[3] == 0x04.toByte()
+    }
+
+    private fun sha256HexOf(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
 }

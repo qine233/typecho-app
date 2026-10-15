@@ -3,6 +3,7 @@ package noline.zhouzhou.data.repository
 import noline.zhouzhou.data.remote.Release
 import noline.zhouzhou.data.remote.ReleaseAsset
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -50,6 +51,22 @@ class UpdateRepositoryTest {
         assertEquals("1.0.1", available.update.version)
         assertEquals("NLecho-1.0.1-debug.apk", available.update.assetName)
         assertEquals(19_000_000L, available.update.sizeBytes)
+    }
+
+    @Test
+    fun `asset digest rides along into the update info`() {
+        val withDigest = resolveUpdate(
+            release("v1.0.1", apk("NLecho-1.0.1-debug.apk").copy(digest = "sha256:DC9b758c00ab")),
+            "1.0.0", true
+        ) as UpdateOutcome.Available
+        // 接口给的是 `sha256:十六进制`，镜像下来的包要拿它对拍
+        assertEquals("dc9b758c00ab", withDigest.update.sha256Hex)
+
+        val withoutDigest = resolveUpdate(
+            release("v1.0.1", apk("NLecho-1.0.1-debug.apk").copy(digest = "sha1:abcdef")),
+            "1.0.0", true
+        ) as UpdateOutcome.Available
+        assertNull(withoutDigest.update.sha256Hex)
     }
 
     @Test

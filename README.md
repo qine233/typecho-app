@@ -43,7 +43,7 @@
 **通用**
 - 深色模式（跟随系统 / 浅色 / 深色）、字体缩放（全局生效，包括正文渲染区）
 - 文章列表持久化缓存，冷启动先出内容再刷新
-- 设置 → 检测更新：问 GitHub Releases 要最新版，有更新就下 apk 交给系统安装器
+- 设置 → 检测更新：问 GitHub Releases 要最新版，有更新就下 apk 交给系统安装器；下载可选 GitHub 镜像站加速，下完对 sha256
 - 退出登录会清掉本机保存的凭证
 
 ## 技术栈
@@ -56,7 +56,7 @@
 | 图片 | Coil 3 |
 | 存储 | DataStore Preferences（配置、互动状态）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康与记账离线队列 / 记账概览与品名候选） |
 | 构建 | AGP 8.7.3、Gradle 8.9 wrapper、JDK 17、minSdk 26 / target & compileSdk 35 |
-| 测试 | JUnit 4 + kotlinx.serialization，131 个单元测试（`app/src/test`） |
+| 测试 | JUnit 4 + kotlinx.serialization，138 个单元测试（`app/src/test`） |
 
 ## 目录结构
 
@@ -105,6 +105,23 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 所以想要一个能装的新包：合并到 `main` 后去 Actions 页面拿 Artifacts；想给外人一个稳定入口，就打 tag。
 
 应用内「检测更新」按 tag 的数字段比版本（`v1.0.1` 与 `1.0.1` 等价），并且**只认同渠道的附件**：debug 包名里带 `debug`，正式包不带。渠道不对时提示「没有本机这个渠道的包」而不是硬下——包名和签名都对不上，下回来也装不进正在跑的这份。
+
+### 下载走 GitHub 镜像
+
+直连 `objects.githubusercontent.com` 拉 19 MB 的包，在这台机器上 240 秒只挪了 6.5 MB（约 27 KB/s），而 `api.github.com` 一次几百字节的请求 0.7 秒就回。所以**查版本仍走官方接口，只有下载 apk 这一步需要镜像**：设置 → 检测更新 → 「更新来源」里选一家，选中的排最前，失败或校验对不上会自动换下一家。
+
+`GithubMirror` 里现在有四家，2026-10-15 用 `v1.0.8` 的包逐个实测过（取首块认 `PK\x03\x04`，再整包下完对 sha256）：
+
+| 来源 | 下载附件 | 转发 `api.github.com` | 整包耗时 |
+| --- | --- | --- | --- |
+| GitHub 直连 | 慢 | 0.7s | 240s 没下完 |
+| `gh-proxy.com` | 通 | 通 | 3.5s |
+| `ghfast.top` | 通 | 403，只转文件 | 12s |
+| `ghproxy.net` | 通但很慢 | 403，只转文件 | 240s 没下完 |
+
+地址是前缀拼接：`https://gh-proxy.com/` + 原始 `https://github.com/...` 或 `https://api.github.com/...`。另外探过但没收的：`github.moeyy.xyz`、`gh.llkk.cc`、`mirror.ghproxy.com`、`ghp.ci`、`hub.gitmirror.com` 连不上，`gh.con.sh`、`gitproxy.click`、`ghproxy.cn`、`dlink.host` 回的是 HTML 页面。镜像站是会换的，所以来源列表要定期重测，代码里那两条兜底链（`apiChain()` / `downloadChain()`）就是为一家死了准备的。
+
+**镜像下来的包一定要对校验和**：GitHub 接口的附件里带 `digest`（形如 `sha256:dc9b…`），`UpdateRepository.download` 下完会重算并比对，另外还看首 4 字节是不是 zip 的 `PK\x03\x04`、大小跟接口报的一不一致，任一项不对就换下一个来源。实测 `gh-proxy.com` 与 `ghfast.top` 下到的包 sha256 与接口 `digest` 完全一致。要点是：**校验和来自接口那一次请求**，所以接口只走 `apiChain()`（直连优先，挂了才轮到能转发接口的 `gh-proxy.com`），不受这里选的下载来源影响。直连拿到接口时，sha256 是 GitHub 说的，镜像换包必然对不上；只剩接口也走镜像这种极端情况，这份校验和就只拦得住截断和 HTML 错误页，拦不住主动作恶——真要把这条链彻底锁死，得给发布物做签名清单（`minisign` 之类）再随仓库分发公钥。
 
 签名这块有个坑值得记一下：Actions 每台 runner 都是新的，`~/.android/debug.keystore` 当场现生成，所以早期每个 Release 的 APK 签名都不一样，App 内下载完交给安装器只会得到 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。现在 `keystore/debug.keystore` 提交在仓库里，本机与 CI 都用它签（口令就是 Android 通用的 `android`/`androiddebugkey`），发布出去的包才互相覆盖得了。**装了 `v1.0.1` 及更早的包要先卸载一次**，那两版是临时密钥签的，跟这份对不上。要出正式签名的 release 包，需要自己补两步：
 

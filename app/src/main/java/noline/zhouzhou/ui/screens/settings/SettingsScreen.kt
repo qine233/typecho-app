@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.BuildConfig
 import noline.zhouzhou.R
+import noline.zhouzhou.data.remote.GithubMirror
 import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.data.repository.NolineReport
 import noline.zhouzhou.ui.components.NolineGuide
@@ -248,7 +249,7 @@ fun SettingsScreen(
                 value = BuildConfig.VERSION_NAME + if (BuildConfig.DEBUG) " · debug" else ""
             )
 
-            UpdateCard(state = uiState.update, viewModel = viewModel)
+            UpdateCard(state = uiState.update, mirrorId = uiState.updateMirrorId, viewModel = viewModel)
 
             Spacer(Modifier.height(24.dp))
 
@@ -800,11 +801,14 @@ private fun ReportLine(label: String, value: String, good: Boolean, color: andro
 /**
  * 检测更新：问 GitHub Releases 要最新版，有更新就下 apk 交给系统安装器。
  * 下载走缓存目录，所以中途取消不会留下占空间的半成品。
+ * 来源可以选，但无论选哪个，剩下的来源都会依次兜底（见 GithubMirror）。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun UpdateCard(state: UpdateState?, viewModel: SettingsViewModel) {
+private fun UpdateCard(state: UpdateState?, mirrorId: String, viewModel: SettingsViewModel) {
+    val mirror = GithubMirror.fromId(mirrorId)
     val subtitle = when (state) {
-        null -> "当前 ${BuildConfig.VERSION_NAME} · 从 GitHub Releases 取最新版"
+        null -> "当前 ${BuildConfig.VERSION_NAME} · 来源 ${mirror.label}"
         is UpdateState.Checking -> "正在问 GitHub…"
         is UpdateState.UpToDate -> "这已经是在用的最新版"
         is UpdateState.Available ->
@@ -879,6 +883,32 @@ private fun UpdateCard(state: UpdateState?, viewModel: SettingsViewModel) {
                     }
                 }
             }
+
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(12.dp))
+            Text("更新来源", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                GithubMirror.entries.forEach { option ->
+                    NoLineChip(
+                        label = option.label,
+                        selected = option.id == mirrorId,
+                        onClick = { viewModel.setUpdateMirror(option) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "只影响下载：选中的排最前，没成或者校验对不上就换下一个来源。" +
+                    "查版本一直走 GitHub 官方接口（几百毫秒），ghfast.top、ghproxy.net 只转文件、不转接口。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 17.sp
+            )
         }
     }
 }
