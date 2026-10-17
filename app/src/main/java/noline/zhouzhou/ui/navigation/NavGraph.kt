@@ -35,6 +35,7 @@ import noline.zhouzhou.ui.screens.home.HomeScreen
 import noline.zhouzhou.ui.screens.login.LoginScreen
 import noline.zhouzhou.ui.screens.post.PostDetailScreen
 import noline.zhouzhou.ui.screens.settings.SettingsScreen
+import noline.zhouzhou.ui.screens.settings.StorageScreen
 
 sealed class Screen(val route: String) {
     /** 首页带一个可选的分类参数，供详情页的 #话题 跳转复用。 */
@@ -57,6 +58,7 @@ sealed class Screen(val route: String) {
             "editor?postId=${postId.orEmpty()}&isPage=$isPage"
     }
     data object Comments : Screen("comments")
+    data object Storage : Screen("settings/storage")
     data object Pages : Screen("admin/pages")
     data object Categories : Screen("admin/categories")
     data object Drive : Screen("cloudreve/drive")
@@ -200,6 +202,13 @@ fun TypechoNavHost(
                 )
             }
 
+            composable(Screen.Storage.route) {
+                StorageScreen(
+                    appContainer = appContainer,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
             composable(
                 route = Screen.PostDetail.route,
                 arguments = listOf(navArgument("postId") { type = NavType.StringType })
@@ -304,6 +313,7 @@ fun TypechoNavHost(
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     appContainer = appContainer,
+                    onOpenStorage = { navController.navigate(Screen.Storage.route) },
                     onLogout = {
                         navController.navigate(Screen.Login.route) {
                             popUpTo(0) { inclusive = true }

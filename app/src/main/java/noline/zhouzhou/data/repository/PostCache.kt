@@ -20,4 +20,12 @@ class PostCache {
     }
 
     fun get(postId: String): Post? = map[postId]
+
+    fun remove(postId: String) {
+        map.remove(postId)
+    }
+
+    fun clear() {
+        map.clear()
+    }
 }

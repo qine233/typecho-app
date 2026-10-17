@@ -17,6 +17,7 @@ class AppContainer(val application: Application) {
     val postCache: PostCache by lazy { PostCache() }
     val postCacheStore: PostCacheStore by lazy { PostCacheStore(application) }
     val draftStore: DraftStore by lazy { DraftStore(application) }
+    val storageRepository: StorageRepository by lazy { StorageRepository(application) }
 
     /**
      * 站点内容变了（存稿、发布、删文章、动分类）。列表页的 ViewModel 活在导航返回栈里，

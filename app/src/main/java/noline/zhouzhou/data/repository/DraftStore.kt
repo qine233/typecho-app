@@ -50,7 +50,47 @@ class DraftStore(private val context: Context) {
         val key = draftKey(postId, isPage)
         scope.launch { runCatching { fileFor(key).delete() } }
     }
+
+    /** 磁盘上的全部本地稿，按最后编辑时间倒序。给「数据与存储」页列出来用。 */
+    suspend fun listAll(): List<DraftEntry> = withContext(Dispatchers.IO) {
+        runCatching {
+            dir.listFiles { file: File -> file.isFile && file.name.endsWith(".json") }
+                ?.mapNotNull { file ->
+                    runCatching {
+                        val draft = json.decodeFromString(LocalDraft.serializer(), file.readText())
+                        if (draft.isBlank) return@runCatching null
+                        DraftEntry(
+                            key = file.name.removeSuffix(".json"),
+                            title = draft.title.ifBlank { if (draft.isPage) "未命名页面" else "未命名文章" },
+                            isPage = draft.isPage,
+                            postId = draft.postId,
+                            excerpt = draft.content.replace('\n', ' ').trim().take(60),
+                            updatedAt = if (draft.updatedAt != 0L) draft.updatedAt else file.lastModified(),
+                            bytes = file.length()
+                        )
+                    }.getOrNull()
+                }
+                ?.sortedByDescending { it.updatedAt }
+                .orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    /** 按文件名丢弃。列表页拿不到 postId/isPage 之外的键，所以直接给 key。 */
+    suspend fun discardKey(key: String) = withContext(Dispatchers.IO) {
+        runCatching { fileFor(key).delete() }
+    }
 }
+
+/** 一份本地稿的摘要，够列表页显示一行。 */
+data class DraftEntry(
+    val key: String,
+    val title: String,
+    val isPage: Boolean,
+    val postId: String,
+    val excerpt: String,
+    val updatedAt: Long,
+    val bytes: Long
+)
 
 /**
  * postId 来自导航参数，可能是 URL 里塞进来的任意串，所以只留字母数字和 -_，

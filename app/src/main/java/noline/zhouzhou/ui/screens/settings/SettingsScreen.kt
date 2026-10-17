@@ -30,6 +30,8 @@ import noline.zhouzhou.R
 import noline.zhouzhou.data.remote.GithubMirror
 import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.data.repository.NolineReport
+import noline.zhouzhou.data.repository.StorageRepository
+import noline.zhouzhou.data.repository.StorageUsage
 import noline.zhouzhou.ui.components.NolineGuide
 import noline.zhouzhou.ui.theme.NoLineChip
 import noline.zhouzhou.ui.theme.noLineFieldColors
@@ -40,16 +42,27 @@ import kotlinx.coroutines.delay
 @Composable
 fun SettingsScreen(
     appContainer: AppContainer,
+    onOpenStorage: () -> Unit,
     onLogout: () -> Unit
 ) {
     val viewModel = typechoViewModel<SettingsViewModel>(appContainer) { SettingsViewModel(it) }
     val uiState by viewModel.uiState.collectAsState()
 
+    // 从「数据与存储」页清理完返回，这里要跟着变，所以统计跟着 ON_RESUME 重跑一次
+    var storageTick by remember { mutableIntStateOf(0) }
+    var storage by remember { mutableStateOf<StorageUsage?>(null) }
+    LaunchedEffect(storageTick) {
+        storage = appContainer.storageRepository.measure()
+    }
+
     // 用户可能刚在系统设置里放行「安装未知应用」，回到这里就把卡住的下载接上
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshPermission()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshPermission()
+                storageTick++
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -235,6 +248,47 @@ fun SettingsScreen(
             // Cloudreve image host
             SettingsSectionHeader("图片上传图床")
             CloudreveSection(uiState, viewModel)
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            SettingsSectionHeader("数据与存储")
+            Card(
+                onClick = onOpenStorage,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Storage, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("占用存储", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            storage?.let {
+                                "安装包 ${formatBytes(it.bytesOf(StorageRepository.KEY_APK))}" +
+                                        " · 缓存 ${formatBytes(it.bytesOf(StorageRepository.CACHE_KEYS))}" +
+                                        " · 数据 ${formatBytes(it.bytesOf(StorageRepository.KEY_DRAFTS, StorageRepository.KEY_QUEUE, StorageRepository.KEY_DATA_OTHER))}"
+                            } ?: "正在统计…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        storage?.let { formatBytes(it.totalBytes) } ?: "",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(20.dp))
+                }
+            }
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
