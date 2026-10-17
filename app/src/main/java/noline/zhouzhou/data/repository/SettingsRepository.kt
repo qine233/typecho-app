@@ -42,6 +42,8 @@ class SettingsRepository(private val context: Context) {
         val STATUS_AUTO_SYNC = booleanPreferencesKey("status_auto_sync")
         val LAST_FLUSH_AT = longPreferencesKey("last_flush_at")
         val LAST_FLUSH_NOTE = stringPreferencesKey("last_flush_note")
+        // DataStore 只有 StringSet 键，那个不保序；搜索历史要按新鲜度排，只能自己拼一行一条。
+        val SEARCH_HISTORY = stringPreferencesKey("search_history")
     }
 
     val siteConfig: Flow<SiteConfig> = context.dataStore.data.map { prefs ->
@@ -218,6 +220,41 @@ class SettingsRepository(private val context: Context) {
     private suspend fun currentCloudrevePassword(): String =
         context.dataStore.data.map { it[Keys.CLOUDREVE_PASSWORD]?.let(secretStore::decrypt).orEmpty() }.first()
 
+    // ── 搜索历史 ──
+
+    val searchHistory: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        readSearchHistory(prefs[Keys.SEARCH_HISTORY])
+    }
+
+    /** 同一个词只留最新的一次，越新的越靠前。 */
+    suspend fun recordSearchTerm(term: String) {
+        val trimmed = term.trim()
+        if (trimmed.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val rest = readSearchHistory(prefs[Keys.SEARCH_HISTORY]).filterNot { it == trimmed }
+            prefs[Keys.SEARCH_HISTORY] = writeSearchHistory(listOf(trimmed) + rest)
+        }
+    }
+
+    suspend fun removeSearchTerm(term: String) {
+        context.dataStore.edit { prefs ->
+            val rest = readSearchHistory(prefs[Keys.SEARCH_HISTORY]).filterNot { it == term }
+            if (rest.isEmpty()) prefs.remove(Keys.SEARCH_HISTORY)
+            else prefs[Keys.SEARCH_HISTORY] = writeSearchHistory(rest)
+        }
+    }
+
+    suspend fun clearSearchHistory() {
+        context.dataStore.edit { it.remove(Keys.SEARCH_HISTORY) }
+    }
+
+    private fun readSearchHistory(raw: String?): List<String> =
+        raw?.split('\n')?.filter { it.isNotBlank() }?.take(SearchHistoryMax) ?: emptyList()
+
+    /** 条目本身不含换行（recordSearchTerm 前已 trim 过空行），所以分隔符不会歧义。 */
+    private fun writeSearchHistory(terms: List<String>): String =
+        terms.filter { it.isNotBlank() }.take(SearchHistoryMax).joinToString("\n")
+
     /** 用户常把 https:// 省掉，OkHttp 拿到没协议的地址会直接抛。 */
     private fun normalizeSite(site: String): String {
         val trimmed = site.trim().trimEnd('/')
@@ -226,6 +263,11 @@ class SettingsRepository(private val context: Context) {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
             else -> "https://$trimmed"
         }
+    }
+
+    private companion object {
+        /** 历史只留最近的几条：再多就成一堵墙，谁也点不到。 */
+        const val SearchHistoryMax = 10
     }
 }
 

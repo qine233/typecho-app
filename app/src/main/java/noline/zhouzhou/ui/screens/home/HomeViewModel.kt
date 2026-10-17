@@ -19,22 +19,14 @@ data class HomeUiState(
     val isLoadingMore: Boolean = false,
     val canLoadMore: Boolean = true,
     val error: String? = null,
-    val searchQuery: String = "",
     val blogName: String = "",
     val categories: List<Category> = emptyList(),
     val selectedCategory: String? = null
 ) {
+    /** 就地筛选只按分类走；找内容这种事交给搜索页，那里能查到全站。 */
     val filteredPosts: List<Post>
-        get() {
-            val query = searchQuery.trim()
-            return posts.filter { post ->
-                val byCategory = selectedCategory == null ||
-                    post.categories.any { it.trim() == selectedCategory }
-                val byQuery = query.isBlank() ||
-                    post.displayTitle.contains(query, ignoreCase = true) ||
-                    post.plainExcerpt.contains(query, ignoreCase = true)
-                byCategory && byQuery
-            }
+        get() = posts.filter { post ->
+            selectedCategory == null || post.categories.any { it.trim() == selectedCategory }
         }
 }
 
@@ -184,8 +176,6 @@ class HomeViewModel(
             }
         }
     }
-
-    fun onSearchQueryChange(query: String) = _uiState.update { it.copy(searchQuery = query) }
 
     fun selectCategory(name: String?) = _uiState.update { it.copy(selectedCategory = name) }
 

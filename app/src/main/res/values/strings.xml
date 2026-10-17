@@ -114,7 +114,7 @@
     <string name="action_open_browser">在浏览器中打开</string>
     <string name="action_close">关闭</string>
     <string name="link_copied">链接已复制</string>
-    <string name="search_hint">搜索文章…</string>
+    <string name="search_hint">搜全站笔记…</string>
     <string name="no_network">无网络连接</string>
 
     <!-- Cloudreve 网盘 -->

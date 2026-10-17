@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import noline.zhouzhou.data.remote.CloudreveApi
 import noline.zhouzhou.data.remote.NolineApi
+import noline.zhouzhou.data.remote.SearchFeedApi
 import noline.zhouzhou.data.remote.TypechoApi
 import noline.zhouzhou.data.repository.*
 import noline.zhouzhou.data.sync.StatusRepository
@@ -17,10 +18,14 @@ class AppContainer(val application: Application) {
     val api: TypechoApi by lazy { TypechoApi() }
     val nolineApi: NolineApi by lazy { NolineApi() }
     val cloudreveApi: CloudreveApi by lazy { CloudreveApi() }
+    val searchFeedApi: SearchFeedApi by lazy { SearchFeedApi() }
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(application) }
     val postRepository: PostRepository by lazy { PostRepository(api) }
     val postCache: PostCache by lazy { PostCache() }
     val postCacheStore: PostCacheStore by lazy { PostCacheStore(application) }
+    val searchRepository: SearchRepository by lazy {
+        SearchRepository(searchFeedApi, settingsRepository, postCache, postCacheStore)
+    }
     val draftStore: DraftStore by lazy { DraftStore(application) }
     val storageRepository: StorageRepository by lazy { StorageRepository(application) }
 

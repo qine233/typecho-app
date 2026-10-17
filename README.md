@@ -16,6 +16,7 @@
 
 **阅读**
 - 首页双列瀑布流，顶部搜索药丸 + 分类横向筛选条；翻页走站点真实分页参数，配骨架屏与进场动画
+- 全站搜索：点搜索药丸进独立搜索页，关键词交给站点的全文搜索（走搜索结果的 RSS，见「全站搜索」），再并上本机已加载的笔记；命中处标黄，带最近搜索历史，离线也能翻出看过的东西
 - 「日记动态」标签：把归在日记分类下的文章按日期倒序排成时间线，单列大图
 - 详情页：多图 `HorizontalPager` 轮播 + 全屏查看器、正文图片懒加载、评论按 `parentId` 还原成嵌套回复树
 - 底部固定互动栏：赞 / 收藏 / 评论入口，点赞收藏状态写本机，下次进来还在
@@ -57,12 +58,12 @@
 | --- | --- |
 | 语言 / UI | Kotlin 2.1、Jetpack Compose（compose-bom 2024.12.01）、Material 3 |
 | 架构 | 单 Activity + Navigation-Compose；`AppContainer` 手写依赖注入；ViewModel + StateFlow |
-| 网络 | OkHttp 4.12；XML-RPC 自己实现（`XmlRpcClient` 手写编解码，无第三方 XML-RPC 库）；NoLine / Cloudreve 走 kotlinx.serialization |
+| 网络 | OkHttp 4.12；XML-RPC 自己实现（`XmlRpcClient` 手写编解码，无第三方 XML-RPC 库）；NoLine / Cloudreve 走 kotlinx.serialization；搜索订阅用 `XmlPullParser` 手解（容忍截断与前缀警告） |
 | 图片 | Coil 3 |
-| 存储 | DataStore Preferences（配置、互动状态）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康与记账离线队列 / 记账概览、品名候选、预算与月报） |
+| 存储 | DataStore Preferences（配置、互动状态、搜索历史）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康与记账离线队列 / 记账概览、品名候选、预算与月报） |
 | 后台 | WorkManager 2.10 周期任务补交离线队列 + 常驻状态通知（`IMPORTANCE_LOW`，不响不弹） |
 | 构建 | AGP 8.7.3、Gradle 8.9 wrapper、JDK 17、minSdk 26 / target & compileSdk 35 |
-| 测试 | JUnit 4 + kotlinx.serialization，173 个单元测试（`app/src/test`） |
+| 测试 | JUnit 4 + kotlinx.serialization，206 个单元测试（`app/src/test`） |
 
 ## 目录结构
 
@@ -71,13 +72,13 @@ app/src/main/java/noline/zhouzhou/
 ├── MainActivity.kt / AppContainer.kt      # 单 Activity + 依赖容器
 ├── data/
 │   ├── model/       # Post / Comment / HealthOverview 等数据类
-│   ├── remote/      # XmlRpcClient（协议编解码）、TypechoApi（业务方法）、NolineApi / CloudreveApi（REST）
-│   ├── repository/  # 缓存、密钥、离线队列、各业务的仓库层
+│   ├── remote/      # XmlRpcClient（协议编解码）、TypechoApi（业务方法）、NolineApi / CloudreveApi（REST）、SearchFeedApi + RssFeedParser（搜索订阅）
+│   ├── repository/  # 缓存、密钥、离线队列、搜索、各业务的仓库层
 │   └── sync/        # 常驻状态通知 + WorkManager 补交任务
 └── ui/
     ├── navigation/  # NavGraph + 自绘 TypechoTabBar
     ├── components/  # 卡片、评论项、小红书式头部/引导文案
-    ├── screens/     # home / diary / post / editor / admin / health / bills / settings / login
+    ├── screens/     # home / search / diary / post / editor / admin / health / bills / settings / login
     └── theme/       # 配色（暖棕强调色 + 灰底白卡）、字体
 ```
 
@@ -166,6 +167,29 @@ XML-RPC 是 Typecho 核心自带的（`var/Widget/XmlRpc.php`，路由 `do(actio
 
 **站点侧改了更彻底**：在宝塔的 PHP 8.4 配置里把 `display_errors` 设为 `Off`（或从 `error_reporting` 里去掉 `E_DEPRECATED`），warning 就不再进响应体，小回复立刻恢复正常长度。改完 `metaWeblog.newPost` / `editPost` 的返回值才真正读得到，不用依赖上面这层兜底。
 
+## 全站搜索：只能走站点的搜索 RSS
+
+首页顶部的药丸点开会进独立的搜索页（不再是在首页就地过滤），进去自动弹键盘。输入停顿 350ms 才发请求，按下键盘上的「搜索」则当场发。
+
+Typecho **没有**给搜索留任何 XML-RPC 口子：`wp.getPosts` 根本没实现（`var/Widget/XmlRpc.php` 的方法表里就没有它），也没有 `mt.search`。能查全站正文的公开出口只有一个 —— 站点自己的搜索结果订阅：
+
+```
+GET https://<site>/feed/search/<关键词>/
+```
+
+它会 301 到 `/index.php/feed/search/<关键词>/` 再回 200（`application/rss+xml`），所以 `SearchFeedApi` 先按重写后的地址试，不是订阅格式再退到 `index.php` 那条。实测下来的规矩都写进了代码和单测：
+
+- **一次最多 10 条，没有翻页参数**。所以搜索结果分两段：站点全文（≤10 篇）+ 本机已加载的笔记（拿首页/日记落盘的 `posts_cache.json`，最多 120 篇，按 cid 去重后只补站点没给的那些）。列表底部会写明「站点一次最多回 10 篇」而不是假装这就是全部。
+- **关键词里带 `/` `:` `,` `?` 会被路由吃掉**（`/feed/search/a%2Fb/` 直接 404），这种词根本不发请求，当场告诉你「站点的搜索接口不认」。空格要编成 `%20` 而不是 `+` —— `+` 会被截断成前半截词。
+- **零命中是 200 + 一个空 `<channel>`**，不能当失败；反过来回了 200 却不是订阅格式，才算「站点没有这个接口」。
+- item 的 `<title>` 常常是空的（日记类文章没标题），`<description>` 是被截断过的摘要，`content:encoded` 才是编译好的**完整正文**。所以搜出来的每一条都会塞进 `PostCache` —— 本站 `metaWeblog.getPost` 在 PHP 8.4 下必 500，不塞进去点开就是一句加载失败。
+- 时间是 RFC 822 的 `pubDate`（`+0800`），而 `Post.dateCreated` 用 epoch 秒，两套解析不能混。
+- 响应被截断时（PHP warning 前缀那类老问题）宁可丢掉最后一条不完整的 item：`link` 里的 cid 正好被切掉一位，就会认成另一篇文章。
+
+高亮分两处：详情页那段是站点自己标的 —— `content:encoded` 里命中处会带 `<mark>`，正文渲染器照原样画出来；列表行里那几处黄标是客户端做的（`SearchHighlight`），把查询按空白切成词，在标题和摘要上做大小写不敏感的命中段标色。
+
+搜索历史存最近 10 条，只在**按下搜索**或**点开某条结果**时记录 —— 攒词自动搜出来的那些半截词不进历史。可以单条删（点词）也可以整列清空。
+
 ## 健康记录与买菜记账：需要 NoLineApi 插件
 
 这两个功能是可选的，不装插件其余功能照常。「健康」标签只对管理员账号显示，读者账号看不到；记账入口在「健康」页顶部的「买菜记账」胶囊里，不占底部第六个标签。没配好接口时点进去是一页配置引导，不会白屏。前提是站点装了配套的 `NolineApi` Typecho 插件（REST 端点：`ping`、`theme`、`health`、`health/records`、`bills`、`bills/records`）。
@@ -226,6 +250,7 @@ v4 有几个和直觉不符的地方，都是对着源码核过的：
 
 ## 已知限制
 
+- **全站搜索只有 10 条**：Typecho 的搜索 RSS 硬上限 10 条且不翻页，XML-RPC 里也没有搜索方法（`wp.getPosts` 未实现）。App 用「本机已加载的笔记」补一段，但两边都没搜到的老文章仍然搜不出来。
 - **登录密码**：勾了「记住登录状态」时以明文存在 DataStore 里（XML-RPC 每次请求都要带原文密码）。NoLine 密钥则走 Keystore 加密。想统一的话，把密码也搬进 `SecretStore` 就行。
 - **明文站点**：`network_security_config` 全局禁了 cleartext，http 站点用不了，需要自己放开。
 - **多作者场景没做过**：分类判定、日记时间线这些逻辑是按「站主一个人写」设计的，换个多人博客可能要做适配。

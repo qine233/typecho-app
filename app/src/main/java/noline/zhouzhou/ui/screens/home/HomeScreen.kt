@@ -36,7 +36,8 @@ import noline.zhouzhou.ui.typechoViewModel
 fun HomeScreen(
     appContainer: AppContainer,
     initialCategory: String = "",
-    onPostClick: (String) -> Unit
+    onPostClick: (String) -> Unit,
+    onSearchClick: () -> Unit
 ) {
     val viewModel = typechoViewModel<HomeViewModel>(appContainer) {
         HomeViewModel(it, initialCategory)
@@ -75,9 +76,8 @@ fun HomeScreen(
             )
             Spacer(Modifier.width(12.dp))
             SearchPill(
-                query = uiState.searchQuery,
-                onQueryChange = viewModel::onSearchQueryChange,
                 placeholder = stringResource(R.string.search_hint),
+                onClick = onSearchClick,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -109,7 +109,7 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 if (uiState.filteredPosts.isEmpty()) {
-                    NoResultState(query = uiState.searchQuery, category = uiState.selectedCategory)
+                    NoResultState(category = uiState.selectedCategory)
                 } else {
                     LazyVerticalStaggeredGrid(
                         state = gridState,
@@ -145,7 +145,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun NoResultState(query: String, category: String?) {
+private fun NoResultState(category: String?) {
     Column(
         modifier = Modifier.fillMaxSize().padding(top = 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -159,7 +159,6 @@ private fun NoResultState(query: String, category: String?) {
         Spacer(Modifier.height(12.dp))
         Text(
             text = when {
-                query.isNotBlank() -> "没有找到「$query」相关的笔记"
                 category != null -> "「$category」下还没有内容"
                 else -> "这里空空如也"
             },

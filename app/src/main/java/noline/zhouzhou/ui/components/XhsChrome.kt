@@ -16,6 +16,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
@@ -27,12 +29,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,17 +47,30 @@ import noline.zhouzhou.ui.theme.LocalNoLine
 /**
  * 小红书式搜索药丸：平时只是占位文字，点击原地变成输入框。
  * 不用 Material TextField 外壳，避免下划线与色块容器。
+ *
+ * 给了 [onClick] 就退化成纯入口（首页那颗），点一下跳搜索页，不在原地展开。
  */
 @Composable
 fun SearchPill(
-    query: String,
-    onQueryChange: (String) -> Unit,
     placeholder: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    query: String = "",
+    onQueryChange: (String) -> Unit = {},
+    onClick: (() -> Unit)? = null,
+    onSearch: (() -> Unit)? = null,
+    autofocus: Boolean = false
 ) {
-    var active by remember { mutableStateOf(false) }
+    val active = onClick == null
     val keyboard = LocalSoftwareKeyboardController.current
     val t = LocalNoLine.current
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (autofocus) {
+            focusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
 
     Row(
         modifier = modifier
@@ -61,13 +79,7 @@ fun SearchPill(
             .background(if (active) t.cardBg else t.surfaceSoft)
             .border(1.dp, if (active) t.accent else Color.Transparent, CircleShape)
             .padding(start = 11.dp, end = if (active) 5.dp else 11.dp)
-            .then(
-                if (active) Modifier
-                else Modifier.clickable {
-                    active = true
-                    keyboard?.show()
-                }
-            ),
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -84,9 +96,12 @@ fun SearchPill(
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = t.textMain),
                 cursorBrush = SolidColor(t.accent),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
                 modifier = Modifier
                     .weight(1f)
-                    .padding(vertical = 7.dp),
+                    .padding(vertical = 7.dp)
+                    .focusRequester(focusRequester),
                 decorationBox = { inner ->
                     Box {
                         if (query.isEmpty()) {
@@ -101,29 +116,16 @@ fun SearchPill(
                 }
             )
             if (query.isNotEmpty()) {
-                Text(
-                    text = "清除",
-                    fontSize = 12.sp,
-                    color = t.accent,
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "清空",
+                    tint = t.textSecondary,
                     modifier = Modifier
+                        .size(24.dp)
                         .clip(CircleShape)
                         .clickable { onQueryChange("") }
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 )
             }
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "收起搜索",
-                tint = t.textSecondary,
-                modifier = Modifier
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .clickable {
-                        active = false
-                        onQueryChange("")
-                        keyboard?.hide()
-                    }
-            )
         } else {
             Text(
                 text = placeholder,

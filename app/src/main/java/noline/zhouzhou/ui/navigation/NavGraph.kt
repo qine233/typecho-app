@@ -36,6 +36,7 @@ import noline.zhouzhou.ui.screens.health.HealthScreen
 import noline.zhouzhou.ui.screens.home.HomeScreen
 import noline.zhouzhou.ui.screens.login.LoginScreen
 import noline.zhouzhou.ui.screens.post.PostDetailScreen
+import noline.zhouzhou.ui.screens.search.SearchScreen
 import noline.zhouzhou.ui.screens.settings.SettingsScreen
 import noline.zhouzhou.ui.screens.settings.StorageScreen
 
@@ -54,6 +55,10 @@ sealed class Screen(val route: String) {
     data object Admin : Screen("admin")
     data object Diary : Screen("diary")
     data object Health : Screen("health")
+    /** 全站搜索单独一页：带进首页搜索药丸的初始词，从历史里挑词时也用它。 */
+    data object Search : Screen("search?query={query}") {
+        fun createRoute(query: String? = null) = "search?query=" + android.net.Uri.encode(query.orEmpty())
+    }
     data object Bills : Screen("bills")
     /** 月报按月份进：概览页的柱子、通知里那句超支提醒都能把它推上来。 */
     data object BillReport : Screen("bills/report/{month}") {
@@ -194,6 +199,24 @@ fun TypechoNavHost(
                 HomeScreen(
                     appContainer = appContainer,
                     initialCategory = entry.arguments?.getString("category").orEmpty(),
+                    onPostClick = { postId ->
+                        navController.navigate(Screen.PostDetail.createRoute(postId))
+                    },
+                    onSearchClick = { navController.navigate(Screen.Search.createRoute()) }
+                )
+            }
+
+            composable(
+                route = Screen.Search.route,
+                arguments = listOf(navArgument("query") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                })
+            ) { entry ->
+                SearchScreen(
+                    appContainer = appContainer,
+                    initialQuery = entry.arguments?.getString("query").orEmpty(),
+                    onBack = { navController.popBackStack() },
                     onPostClick = { postId ->
                         navController.navigate(Screen.PostDetail.createRoute(postId))
                     }
