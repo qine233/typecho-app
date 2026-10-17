@@ -13,8 +13,8 @@ android {
         applicationId = "noline.zhouzhou"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.2.0"
+        versionCode = 14
+        versionName = "1.2.1"
     }
 
     // Actions 每次 run 现生成一把调试密钥，签名互不相同会让 App 内更新被判
@@ -74,6 +74,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
 
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime.ktx)
 
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
