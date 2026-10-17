@@ -1,8 +1,10 @@
 package noline.zhouzhou.data.repository
 
 import android.content.Context
+import noline.zhouzhou.data.model.BillBudget
 import noline.zhouzhou.data.model.BillInput
 import noline.zhouzhou.data.model.BillsOverview
+import noline.zhouzhou.data.model.BillMonthReport
 import noline.zhouzhou.data.model.BillRecord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -47,7 +49,8 @@ data class TitleHint(
 
 /**
  * 记账的本地缓存：概览原样存一份离线可看，待提交队列单独存一份，
- * 另外攒一份品名候选（接口没有「常用商品」端点，只能 App 自己记）。
+ * 另外攒一份品名候选（接口没有「常用商品」端点，只能 App 自己记），
+ * 月报按月份攒最近 [MaxReports] 份、预算存本机。
  */
 class BillsLocalStore(private val context: Context) {
 
@@ -55,8 +58,11 @@ class BillsLocalStore(private val context: Context) {
     private val overviewFile: File get() = File(context.filesDir, "bills_overview.json")
     private val queueFile: File get() = File(context.filesDir, "bills_queue.json")
     private val hintsFile: File get() = File(context.filesDir, "bills_hints.json")
+    private val budgetFile: File get() = File(context.filesDir, "bills_budget.json")
+    private val reportsFile: File get() = File(context.filesDir, "bills_reports.json")
 
     private val hintsSerializer = MapSerializer(String.serializer(), TitleHint.serializer())
+    private val reportsSerializer = MapSerializer(String.serializer(), BillMonthReport.serializer())
 
     suspend fun loadOverview(): BillsOverview? = withContext(Dispatchers.IO) {
         runCatching {
@@ -157,6 +163,44 @@ class BillsLocalStore(private val context: Context) {
         return next
     }
 
+    suspend fun loadBudget(): BillBudget = withContext(Dispatchers.IO) {
+        runCatching {
+            if (!budgetFile.exists()) return@runCatching BillBudget()
+            json.decodeFromString(BillBudget.serializer(), budgetFile.readText())
+        }.getOrDefault(BillBudget())
+    }
+
+    suspend fun saveBudget(budget: BillBudget) = withContext(Dispatchers.IO) {
+        runCatching { writeAtomically(budgetFile, json.encodeToString(BillBudget.serializer(), budget)) }
+    }
+
+    suspend fun loadReport(month: String): BillMonthReport? = withContext(Dispatchers.IO) {
+        runCatching { reports()[month] }.getOrNull()
+    }
+
+    /** 月报能整月重算，但它是最容易「点开是空的」的东西，存下来离线也能翻。 */
+    suspend fun saveReport(report: BillMonthReport) = withContext(Dispatchers.IO) {
+        runCatching {
+            val current = runCatching {
+                if (!reportsFile.exists()) emptyMap()
+                else json.decodeFromString(reportsSerializer, reportsFile.readText())
+            }.getOrDefault(emptyMap())
+            val merged = (current + (report.month to report)).toList()
+                // 月份是 YYYY-MM，字符串序就是时间序；只留最近这些份，别越攒越多。
+                .sortedBy { it.first }
+                .takeLast(MaxReports)
+                .toMap()
+            writeAtomically(reportsFile, json.encodeToString(reportsSerializer, merged))
+        }
+    }
+
+    private suspend fun reports(): Map<String, BillMonthReport> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (!reportsFile.exists()) emptyMap()
+            else json.decodeFromString(reportsSerializer, reportsFile.readText())
+        }.getOrDefault(emptyMap())
+    }
+
     private fun writeAtomically(target: File, text: String) {
         val tmp = File(target.parentFile, target.name + ".tmp")
         tmp.writeText(text)
@@ -165,5 +209,6 @@ class BillsLocalStore(private val context: Context) {
 
     companion object {
         private const val MaxHints = 200
+        private const val MaxReports = 12
     }
 }

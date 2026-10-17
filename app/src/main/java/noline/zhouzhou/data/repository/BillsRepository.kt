@@ -1,11 +1,18 @@
 package noline.zhouzhou.data.repository
 
 import noline.zhouzhou.data.model.BillAggregate
+import noline.zhouzhou.data.model.BillBudget
+import noline.zhouzhou.data.model.BillBudgetStatus
 import noline.zhouzhou.data.model.BillInput
+import noline.zhouzhou.data.model.BillKind
+import noline.zhouzhou.data.model.BillMonthReport
 import noline.zhouzhou.data.model.BillRecord
 import noline.zhouzhou.data.model.BillRecordsPage
 import noline.zhouzhou.data.model.BillUpdate
 import noline.zhouzhou.data.model.BillsOverview
+import noline.zhouzhou.data.model.billBudgetStatus
+import noline.zhouzhou.data.model.billMonthRange
+import noline.zhouzhou.data.model.buildBillMonthReport
 import noline.zhouzhou.data.remote.NolineApi
 import noline.zhouzhou.data.remote.NolineException
 import noline.zhouzhou.data.remote.NolineIssue
@@ -135,6 +142,65 @@ class BillsRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    // ── 月报 ──
+
+    suspend fun cachedReport(month: String): BillMonthReport? = store.loadReport(month)
+
+    /**
+     * 取一整个月并汇总。接口没有分页，`limit=0` 才拿得全，所以一个月就一次请求。
+     *
+     * 失败时这里不自己回落到缓存——「请求失败」和「这份缓存是哪来的」得由 UI 分开说，
+     * 否则用户会把三个月前的数字当这个月的。
+     */
+    suspend fun monthReport(month: String): Result<BillMonthReport> {
+        val range = billMonthRange(month)
+            ?: return Result.failure(NolineException(0, NolineIssue.BadInput, "月份要写成 2026-10 这样"))
+        val c = ctx()
+        return try {
+            val page = api.billRecords(c.siteUrl, c.form, c.key, limit = 0, from = range.first, to = range.second)
+            val unsent = store.loadQueue().ops.unsentAdds().filter { it.date.take(7) == month }
+            val report = buildBillMonthReport(
+                month = month,
+                records = page.records + unsent,
+                includesPending = unsent.isNotEmpty()
+            )
+            store.saveReport(report)
+            Result.success(report)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // ── 预算 ──
+
+    suspend fun budget(): BillBudget = store.loadBudget()
+
+    suspend fun saveBudget(budget: BillBudget) = store.saveBudget(budget.normalized())
+
+    /**
+     * 当月已花 vs 预算。通知和记账页共用这一份算法，别两处各算一遍。
+     *
+     * 底数是服务器算好的本月，再加上队列里还没上传的新增——离线记的那几笔也是花掉的钱。
+     */
+    suspend fun currentBudgetStatus(): BillBudgetStatus {
+        val budget = store.loadBudget()
+        if (!budget.active) return BillBudgetStatus(budget)
+
+        val overview = store.loadOverview()
+        val serverToday = overview?.span?.today.orEmpty()
+        val month = (if (serverToday.length >= 7) serverToday else RecordPreflight.today()).take(7)
+
+        val kindSpent = (overview?.kindsMonth?.associate { it.kind to it.amount } ?: emptyMap()).toMutableMap()
+        var spent = overview?.month?.amount ?: 0.0
+        store.loadQueue().ops.unsentAdds().forEach { row ->
+            if (row.date.take(7) != month) return@forEach
+            val kind = BillKind.normalize(row.kind)
+            spent += row.amount
+            kindSpent[kind] = (kindSpent[kind] ?: 0.0) + row.amount
+        }
+        return billBudgetStatus(budget, spent, kindSpent)
     }
 
     /** 一次买多样就一次提交：POST 是批量新增，别为三样菜发三个请求。 */
@@ -324,3 +390,25 @@ fun billDelta(current: BillAggregate?, previous: BillAggregate?): Double? {
     if (previous == null || previous.count == 0) return null
     return current.amount - previous.amount
 }
+
+/**
+ * 队列里还没上传的新增，摊平成流水行。`id` 用的是本地 uid，
+ * 所以它既能拿去改（并回那条新增），也能拿去删（从队列里抹掉）。
+ *
+ * 月报和预算都必须含它：离线记的账在网之后才出现在服务器上，不含的话那几个数字会凭空少一截。
+ */
+fun List<PendingBill>.unsentAdds(): List<BillRecord> =
+    filter { it.op == BillOp.Add && it.serverId.isBlank() && it.input != null }
+        .map { op ->
+            val input = op.input!!
+            BillRecord(
+                id = op.uid,
+                date = input.date,
+                title = input.title,
+                amount = input.amount,
+                kind = input.kind ?: "other",
+                shop = input.shop.orEmpty(),
+                note = input.note.orEmpty(),
+                time = op.queuedAt / 1000
+            )
+        }

@@ -54,13 +54,19 @@ import kotlinx.coroutines.delay
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BillsScreen(appContainer: AppContainer, onBack: () -> Unit, onOpenSettings: () -> Unit) {
+fun BillsScreen(
+    appContainer: AppContainer,
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenReport: (String) -> Unit
+) {
     val viewModel = typechoViewModel<BillsViewModel>(appContainer) { BillsViewModel(it) }
     val state by viewModel.uiState.collectAsState()
     val t = LocalNoLine.current
 
     var editTarget by remember { mutableStateOf<BillRowUi?>(null) }
     var showNewSheet by remember { mutableStateOf(false) }
+    var showBudgetSheet by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.toast) {
@@ -151,16 +157,28 @@ fun BillsScreen(appContainer: AppContainer, onBack: () -> Unit, onOpenSettings: 
                 }
                 if (overview == null) {
                     BillsSkeleton()
-                } else if (overview.count == 0) {
+                } else if (overview.count == 0 && !state.budgetStatus.active) {
                     NoBillYet(span = overview.span)
                 } else {
-                    MonthHeroCard(overview)
-                    Spacer(Modifier.height(10.dp))
-                    PeriodRow(overview)
-                    Spacer(Modifier.height(14.dp))
-                    MonthBarsCard(overview.months)
-                    Spacer(Modifier.height(12.dp))
-                    KindShareCard(overview)
+                    if (overview.count > 0) {
+                        MonthHeroCard(overview)
+                        Spacer(Modifier.height(10.dp))
+                        PeriodRow(overview)
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    // 预算卡在本月那一格里，超没超都得一眼看得见，不用点进报告才知道。
+                    BudgetCard(
+                        status = state.budgetStatus,
+                        currency = overview.currency,
+                        subject = "本月",
+                        onEdit = { showBudgetSheet = true }
+                    )
+                    if (overview.count > 0) {
+                        Spacer(Modifier.height(14.dp))
+                        MonthBarsCard(overview.months, onOpenReport)
+                        Spacer(Modifier.height(12.dp))
+                        KindShareCard(overview)
+                    }
                 }
 
                 InvalidTitlesStrip(state.invalidTitles)
@@ -258,6 +276,18 @@ fun BillsScreen(appContainer: AppContainer, onBack: () -> Unit, onOpenSettings: 
                 val ref = row.localRef
                 editTarget = null
                 viewModel.deleteBill(ref)
+            }
+        )
+    }
+
+    if (showBudgetSheet) {
+        BillBudgetSheet(
+            initial = state.budgetStatus.budget,
+            currency = overview?.currency ?: "CNY",
+            onDismiss = { showBudgetSheet = false },
+            onSave = { budget ->
+                viewModel.saveBudget(budget)
+                showBudgetSheet = false
             }
         )
     }
@@ -414,9 +444,9 @@ private fun AggregateFootnote(agg: BillAggregate, overview: BillsOverview) {
     }
 }
 
-/** 少花是好事，所以降用强调色、升用报错色。 */
+/** 少花是好事，所以降用强调色、升用报错色。月报页共用这一个。 */
 @Composable
-private fun DeltaTag(delta: Double?, small: Boolean = false, modifier: Modifier = Modifier) {
+internal fun DeltaTag(delta: Double?, small: Boolean = false, modifier: Modifier = Modifier) {
     val t = LocalNoLine.current
     val accent = LocalAccent.current
     val text = when {
@@ -441,7 +471,7 @@ private fun DeltaTag(delta: Double?, small: Boolean = false, modifier: Modifier 
 }
 
 @Composable
-private fun MonthBarsCard(months: List<BillMonthStat>) {
+private fun MonthBarsCard(months: List<BillMonthStat>, onOpenReport: (String) -> Unit) {
     if (months.isEmpty()) return
     val t = LocalNoLine.current
     Column(
@@ -451,14 +481,29 @@ private fun MonthBarsCard(months: List<BillMonthStat>) {
             .noLineCard(RoundedCornerShape(16.dp))
             .padding(14.dp)
     ) {
-        Text("近 7 个月", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.textStrong)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("近 7 个月", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.textStrong)
+            Spacer(Modifier.weight(1f))
+            // 点柱子下面的月份进整月报告；这里再给一个不用找地方的入口。
+            Text(
+                "本月报告",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = LocalAccent.current,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .clickable { onOpenReport(months.last().month) }
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            )
+        }
         Spacer(Modifier.height(10.dp))
-        MonthBars(months)
+        MonthBars(months, onOpenReport)
         Spacer(Modifier.height(6.dp))
         Text(
-            "中间那个月一根柱子都没有是真没买菜，不是数据缺了",
+            "中间那个月一根柱子都没有是真没买菜，不是数据缺了；点月份能看那个月的整月报告",
             fontSize = 10.5.sp,
-            color = t.textLight
+            color = t.textLight,
+            lineHeight = 16.sp
         )
     }
 }
@@ -468,7 +513,7 @@ private fun MonthBarsCard(months: List<BillMonthStat>) {
  * 自己按有数据的月份生成横轴，「没消费」和「没记录」就长成一个样了。
  */
 @Composable
-private fun MonthBars(months: List<BillMonthStat>) {
+private fun MonthBars(months: List<BillMonthStat>, onOpenReport: (String) -> Unit) {
     val accent = LocalAccent.current
     val idle = accent.copy(alpha = 0.22f)
     val labelColor = LocalNoLine.current.textLight
@@ -502,7 +547,11 @@ private fun MonthBars(months: List<BillMonthStat>) {
                     fontSize = 10.sp,
                     color = if (index == months.lastIndex) accent else labelColor,
                     fontWeight = if (index == months.lastIndex) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.weight(1f),
+                    // 格子本身是 Canvas，摸不准边界；标签这一行才是能点的地方。
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onOpenReport(stat.month) }
+                        .padding(vertical = 3.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
@@ -910,34 +959,7 @@ private fun BillsIssueStrip(issue: NolineIssue?, hint: String, onOpenSettings: (
 }
 
 // ── 文案小工具 ──
-
-/** 记账的 `currency` 目前只回 CNY，但别把它硬写成人民币符号。 */
-private fun symbolOf(currency: String): String = when (currency.uppercase()) {
-    "CNY", "RMB" -> "¥"
-    "USD" -> "$"
-    "EUR" -> "€"
-    else -> ""
-}
-
-private fun moneyText(amount: Double, overview: BillsOverview): String {
-    val symbol = symbolOf(overview.currency)
-    return if (symbol.isEmpty()) "${moneyPlain(amount)} ${overview.currency}" else "$symbol${moneyPlain(amount)}"
-}
-
-/** 格子里的短格式：超过一千就别拖一串小数。 */
-private fun moneyShort(amount: Double, overview: BillsOverview): String {
-    val symbol = symbolOf(overview.currency)
-    val head = if (amount >= 10000) "%.1f万".format(amount / 10000) else moneyPlain(amount)
-    return if (symbol.isEmpty()) head else "$symbol$head"
-}
-
-private fun moneyPlain(amount: Double): String = "%.2f".format(amount)
-
-private fun monthLabel(month: String): String =
-    if (month.length >= 7) "${month.takeLast(2).trimStart('0')}月" else month
-
-private fun shortDate(date: String): String =
-    if (date.length >= 10) "${date.substring(5, 7).trimStart('0')}月${date.substring(8, 10).trimStart('0')}日" else date
+// 金额和日期的格式化在 BillsFormat.kt，月报页要用同一套。
 
 private fun dayCaption(date: String, serverToday: String): String {
     if (date.isNotBlank() && date == serverToday) return "今天"

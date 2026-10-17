@@ -4,19 +4,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.model.BillAggregate
+import noline.zhouzhou.data.model.BillBudget
+import noline.zhouzhou.data.model.BillBudgetStatus
 import noline.zhouzhou.data.model.BillInput
 import noline.zhouzhou.data.model.BillKind
 import noline.zhouzhou.data.model.BillRecord
 import noline.zhouzhou.data.model.BillsOverview
 import noline.zhouzhou.data.remote.NolineException
 import noline.zhouzhou.data.remote.NolineIssue
-import noline.zhouzhou.data.repository.BillOp
 import noline.zhouzhou.data.repository.BillPreflight
 import noline.zhouzhou.data.repository.PendingBill
 import noline.zhouzhou.data.repository.PreflightError
 import noline.zhouzhou.data.repository.TitleHint
 import noline.zhouzhou.data.repository.WriteOutcome
 import noline.zhouzhou.data.repository.billDelta
+import noline.zhouzhou.data.repository.unsentAdds
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,7 +62,9 @@ data class BillsUiState(
     val filterKind: String = "",
     val expanded: Boolean = false,
     val detail: BillDetailUi? = null,
-    val detailLoading: Boolean = false
+    val detailLoading: Boolean = false,
+    /** 预算进度是本机的数，不进队列；没设预算时它的 active 为 false。 */
+    val budgetStatus: BillBudgetStatus = BillBudgetStatus()
 ) {
     val pendingCount: Int get() = pending.size
     val showSetupGuide: Boolean get() = overview == null && issue != null
@@ -101,6 +105,7 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
                     overview = cached,
                     pending = container.billsRepository.pendingOps(),
                     hints = container.billsRepository.titleHints(),
+                    budgetStatus = container.billsRepository.currentBudgetStatus(),
                     loading = true
                 )
             }
@@ -112,13 +117,15 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             if (!silent) _uiState.update { it.copy(loading = true) }
             val result = container.billsRepository.refresh()
+            val budget = container.billsRepository.currentBudgetStatus()
             _uiState.update { state ->
                 result.fold(
                     onSuccess = {
                         state.copy(
                             loading = false, configured = true, overview = it,
                             issue = null, issueHint = "",
-                            pending = container.billsRepository.pendingOps()
+                            pending = container.billsRepository.pendingOps(),
+                            budgetStatus = budget
                         )
                     },
                     onFailure = { e ->
@@ -126,7 +133,8 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
                             loading = false,
                             issue = (e as? NolineException)?.issue ?: NolineIssue.Unknown,
                             issueHint = e.message ?: "读不到记账数据",
-                            pending = container.billsRepository.pendingOps()
+                            pending = container.billsRepository.pendingOps(),
+                            budgetStatus = budget
                         )
                     }
                 )
@@ -169,26 +177,10 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private fun unsentOnly(): List<BillDayUi> {
-        val unsent = _uiState.value.pending.filter { it.op == BillOp.Add && it.serverId.isBlank() && it.input != null }
+        val unsent = _uiState.value.pending.unsentAdds()
         if (unsent.isEmpty()) return emptyList()
         return unsent
-            .map { op ->
-                val input = op.input!!
-                BillRowUi(
-                    record = BillRecord(
-                        id = op.uid,
-                        date = input.date,
-                        title = input.title,
-                        amount = input.amount,
-                        kind = input.kind ?: "other",
-                        shop = input.shop.orEmpty(),
-                        note = input.note.orEmpty(),
-                        time = op.queuedAt / 1000
-                    ),
-                    pending = true,
-                    localRef = op.uid
-                )
-            }
+            .map { BillRowUi(it, pending = true, localRef = it.id) }
             .groupBy { it.record.date }
             .map { (date, rows) -> BillDayUi(date, rows.sumOf { it.record.amount }, rows) }
     }
@@ -314,12 +306,14 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
     private suspend fun apply(outcome: WriteOutcome, verb: String = "已记下") {
         val pending = container.billsRepository.pendingOps()
         val hints = container.billsRepository.titleHints()
+        val budget = container.billsRepository.currentBudgetStatus()
         when (outcome) {
             is WriteOutcome.Saved -> _uiState.update {
                 it.copy(
                     overview = container.billsRepository.cachedOverview() ?: it.overview,
                     pending = pending,
                     hints = hints,
+                    budgetStatus = budget,
                     invalidTitles = outcome.invalid,
                     toast = if (outcome.invalid.isEmpty()) verb
                             else "有 ${outcome.invalid.size} 条没记上：${outcome.invalid.joinToString("、")}"
@@ -329,6 +323,7 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
                 it.copy(
                     pending = pending,
                     hints = hints,
+                    budgetStatus = budget,
                     toast = "现在没网，先存在手机里，联网后自动补交"
                 )
             }
@@ -336,6 +331,7 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
                 it.copy(
                     pending = pending,
                     hints = hints,
+                    budgetStatus = budget,
                     issue = outcome.issue,
                     issueHint = outcome.message,
                     invalidTitles = outcome.invalid,
@@ -344,6 +340,17 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
             }
         }
         container.refreshStatusNotice()
+    }
+
+    // ── 预算 ──
+
+    /** 预算只存本机：接口没有预算端点，它不参与同步，也就不会有「待同步的预算」。 */
+    fun saveBudget(budget: BillBudget) {
+        viewModelScope.launch {
+            container.billsRepository.saveBudget(budget)
+            _uiState.update { it.copy(budgetStatus = container.billsRepository.currentBudgetStatus()) }
+            container.refreshStatusNotice()
+        }
     }
 
     fun consumeToast() = _uiState.update { it.copy(toast = null) }

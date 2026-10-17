@@ -432,7 +432,7 @@ private fun BillDateRow(date: String, onSelect: (String) -> Unit, onPick: () -> 
 }
 
 @Composable
-private fun BillField(
+internal fun BillField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,

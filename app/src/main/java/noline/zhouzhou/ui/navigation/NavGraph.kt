@@ -26,6 +26,7 @@ import noline.zhouzhou.ui.screens.admin.AdminScreen
 import noline.zhouzhou.ui.screens.admin.CategoriesScreen
 import noline.zhouzhou.ui.screens.admin.CommentsScreen
 import noline.zhouzhou.ui.screens.admin.PagesScreen
+import noline.zhouzhou.ui.screens.bills.BillReportScreen
 import noline.zhouzhou.ui.screens.bills.BillsScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
 import noline.zhouzhou.ui.screens.drive.DriveScreen
@@ -54,6 +55,10 @@ sealed class Screen(val route: String) {
     data object Diary : Screen("diary")
     data object Health : Screen("health")
     data object Bills : Screen("bills")
+    /** 月报按月份进：概览页的柱子、通知里那句超支提醒都能把它推上来。 */
+    data object BillReport : Screen("bills/report/{month}") {
+        fun createRoute(month: String) = "bills/report/$month"
+    }
     data object Editor : Screen("editor?postId={postId}&isPage={isPage}") {
         fun createRoute(postId: String? = null, isPage: Boolean = false) =
             "editor?postId=${postId.orEmpty()}&isPage=$isPage"
@@ -129,11 +134,17 @@ fun TypechoNavHost(
         }
     }
 
-    // 通知点进来落在「数据与存储」。放在 loggedIn 解析之后，是为了等图建好，
-    // 否则 navigate 会打在一个还不存在的路由上。
+    // 通知点进来落在「数据与存储」，超支那句落在记账页。放在 loggedIn 解析之后，
+    // 是为了等图建好，否则 navigate 会打在一个还不存在的路由上。
     LaunchedEffect(deepLink) {
-        if (deepLink == StatusNotifier.DEEP_LINK) {
-            navController.navigate(Screen.Storage.route) { launchSingleTop = true }
+        val link = deepLink ?: return@LaunchedEffect
+        val target = when (link) {
+            StatusNotifier.DEEP_LINK -> Screen.Storage.route
+            StatusNotifier.DEEP_LINK_BILLS -> Screen.Bills.route
+            else -> null
+        }
+        if (target != null) {
+            navController.navigate(target) { launchSingleTop = true }
             onDeepLinkShown()
         }
     }
@@ -209,6 +220,21 @@ fun TypechoNavHost(
             composable(Screen.Bills.route) {
                 BillsScreen(
                     appContainer = appContainer,
+                    onBack = { navController.popBackStack() },
+                    onOpenSettings = { switchTab(Screen.Settings.route) },
+                    onOpenReport = { month ->
+                        navController.navigate(Screen.BillReport.createRoute(month))
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.BillReport.route,
+                arguments = listOf(navArgument("month") { type = NavType.StringType })
+            ) { entry ->
+                BillReportScreen(
+                    appContainer = appContainer,
+                    month = entry.arguments?.getString("month").orEmpty(),
                     onBack = { navController.popBackStack() },
                     onOpenSettings = { switchTab(Screen.Settings.route) }
                 )

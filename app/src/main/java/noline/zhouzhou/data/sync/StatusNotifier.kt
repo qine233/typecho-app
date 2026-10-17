@@ -24,6 +24,7 @@ object StatusNotifier {
     const val NOTIFICATION_ID = 4201
     const val ACTION_FLUSH = "noline.zhouzhou.action.FLUSH_PENDING"
     const val DEEP_LINK = "nline://status"
+    const val DEEP_LINK_BILLS = "nline://bills"
 
     private val timeFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
 
@@ -58,7 +59,7 @@ object StatusNotifier {
             0,
             Intent(context, MainActivity::class.java)
                 .setAction(Intent.ACTION_VIEW)
-                .setData(android.net.Uri.parse(DEEP_LINK))
+                .setData(android.net.Uri.parse(status.targetLink()))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

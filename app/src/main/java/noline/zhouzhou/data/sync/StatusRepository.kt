@@ -34,7 +34,9 @@ class StatusRepository(
             pendingBills = billsStore.loadQueue().ops.size,
             drafts = draftStore.listAll().size,
             lastFlushAt = at,
-            lastFlushNote = note
+            lastFlushNote = note,
+            // 预算超支是「这个月」的事，队列一有变动就得跟着重算，不能等到下一轮周期任务。
+            budgetAlert = billsRepository.currentBudgetStatus().alert()
         )
     }
 

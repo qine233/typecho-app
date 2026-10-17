@@ -44,4 +44,45 @@ class WorkStatusTest {
             WorkStatus(drafts = 2).detail("")
         )
     }
+
+    @Test
+    fun `budget alert takes the headline only when the queues are clean`() {
+        val over = WorkStatus(budgetAlert = "本月买菜超预算 120.00 元")
+        assertEquals("本月买菜超预算 120.00 元", over.headline())
+        // 还有待交的东西时，那条更要紧——它不处理会真的丢。
+        assertEquals(
+            "待同步 1 条",
+            WorkStatus(pendingBills = 1, budgetAlert = "本月买菜超预算 120.00 元").headline()
+        )
+        // 草稿同理：超支是「这个月」的事，草稿是「还没写完」的事，前者更能推动人去打开 App。
+        assertEquals(
+            "本月买菜超预算 120.00 元",
+            WorkStatus(drafts = 3, budgetAlert = "本月买菜超预算 120.00 元").headline()
+        )
+    }
+
+    @Test
+    fun `detail mentions the budget alert only when the headline is busy with something else`() {
+        val over = "本月买菜超预算 120.00 元"
+        // 待同步占着标题，超支这句话就落到正文。
+        val pending = WorkStatus(pendingHealth = 2, budgetAlert = over).detail("")
+        assertTrue(pending, pending.contains(over))
+        assertTrue(pending, pending.startsWith("等有网自动交"))
+        // 标题已经是它了，正文就别再念一遍。
+        val bare = WorkStatus(budgetAlert = over).detail("")
+        assertTrue(bare, !bare.contains(over))
+        assertEquals("点开看看这个月哪类超了", bare)
+    }
+
+    @Test
+    fun `a bare budget alert opens the bills page, anything else opens the queue page`() {
+        val over = "本月买菜超预算 120.00 元"
+        assertEquals(StatusNotifier.DEEP_LINK_BILLS, WorkStatus(budgetAlert = over).targetLink())
+        // 有待交的东西时，点开该看到的是队列出口。
+        assertEquals(
+            StatusNotifier.DEEP_LINK,
+            WorkStatus(pendingBills = 1, budgetAlert = over).targetLink()
+        )
+        assertEquals(StatusNotifier.DEEP_LINK, WorkStatus().targetLink())
+    }
 }
