@@ -23,12 +23,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -38,12 +39,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.data.model.Post
 import noline.zhouzhou.data.remote.SearchFailure
+import noline.zhouzhou.ui.components.CoverImage
 import noline.zhouzhou.ui.components.SearchPill
+import noline.zhouzhou.ui.components.sharedPostCover
 import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.theme.noLineCard
 import noline.zhouzhou.ui.typechoViewModel
@@ -312,6 +314,9 @@ private fun SearchResultRow(post: Post, query: String, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
     val title = if (post.hasMeaningfulTitle) post.displayTitle else ""
     val body = if (post.hasMeaningfulTitle) post.plainExcerpt else post.displayTitle
+    // 图床死的文章一抓一大把，缩略图拿不到就得整格消失，而不是留个灰坑。
+    var coverGone by remember(post.postId) { mutableStateOf(false) }
+    val cover = post.firstImage?.takeIf { !coverGone }
 
     Row(
         modifier = Modifier
@@ -371,16 +376,14 @@ private fun SearchResultRow(post: Post, query: String, onClick: () -> Unit) {
             }
         }
 
-        post.firstImage?.let { url ->
+        cover?.let { url ->
             Spacer(Modifier.width(10.dp))
-            AsyncImage(
-                model = url,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(74.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(t.surfaceSunken)
+            // 缩略图和卡片走同一套封面兜底，也一起进详情页的首屏飞行。
+            CoverImage(
+                url = url,
+                onUnavailable = { coverGone = true },
+                modifier = Modifier.size(74.dp).sharedPostCover(post.postId),
+                clipShape = RoundedCornerShape(8.dp)
             )
         }
     }

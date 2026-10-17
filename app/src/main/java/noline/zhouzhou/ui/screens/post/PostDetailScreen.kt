@@ -42,6 +42,7 @@ import noline.zhouzhou.ui.components.FeedAvatar
 import noline.zhouzhou.ui.components.FullscreenImageViewer
 import noline.zhouzhou.ui.components.NoteImagePager
 import noline.zhouzhou.ui.components.NoteInteractionBar
+import noline.zhouzhou.ui.components.sharedPostCover
 import noline.zhouzhou.ui.theme.LocalAccent
 import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.theme.noLineCard
@@ -261,21 +262,29 @@ private fun PostHero(
             .then(if (cover != null) Modifier.height(292.dp) else Modifier.heightIn(min = 196.dp))
     ) {
         if (cover != null) {
-            AsyncImage(
-                model = cover,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
+            // 飞过来的是「照片 + 深罩」这一整块，标题不参与：卡片封面上没有标题，
+            // 一前一后得是同一副样子，不然中途会看到字被压扁。
             Box(
                 Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(t.heroVeilTop, t.heroVeilBottom.copy(alpha = t.heroVeilBottom.alpha * 0.75f))
+                    .matchParentSize()
+                    .sharedPostCover(post.postId)
+            ) {
+                AsyncImage(
+                    model = cover,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(t.heroVeilTop, t.heroVeilBottom.copy(alpha = t.heroVeilBottom.alpha * 0.75f))
+                            )
                         )
-                    )
-            )
+                )
+            }
         } else {
             // .post-hero:not(.has-cover)：两层强调色辉光顶在上方，比纯底色有层次
             BoxWithConstraints(Modifier.fillMaxSize()) {

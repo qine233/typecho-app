@@ -22,6 +22,8 @@ import androidx.navigation.navArgument
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.data.sync.StatusNotifier
+import noline.zhouzhou.ui.components.LocalNavAnimatedScope
+import noline.zhouzhou.ui.components.LocalSharedTransitionScope
 import noline.zhouzhou.ui.screens.admin.AdminScreen
 import noline.zhouzhou.ui.screens.admin.CategoriesScreen
 import noline.zhouzhou.ui.screens.admin.CommentsScreen
@@ -96,7 +98,11 @@ private val SettingsTab = TabSpec(
     Screen.Settings.route, "设置", Icons.Outlined.Settings, Icons.Filled.Settings
 )
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalAnimationApi::class,
+    ExperimentalSharedTransitionApi::class
+)
 @Composable
 fun TypechoNavHost(
     appContainer: AppContainer,
@@ -169,219 +175,255 @@ fun TypechoNavHost(
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = if (loggedIn) Screen.Home.createRoute() else Screen.Login.route,
-            modifier = Modifier.padding(innerPadding),
-            enterTransition = { fadeIn(animationSpec = tween(300)) + slideInHorizontally { it / 4 } },
-            exitTransition = { fadeOut(animationSpec = tween(200)) },
-            popEnterTransition = { fadeIn(animationSpec = tween(300)) },
-            popExitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally { it / 4 } }
-        ) {
-            composable(Screen.Login.route) {
-                LoginScreen(
-                    appContainer = appContainer,
-                    onLoginSuccess = {
-                        navController.navigate(Screen.Home.createRoute()) {
-                            popUpTo(Screen.Login.route) { inclusive = true }
-                        }
-                    }
-                )
-            }
-
-            composable(
-                route = Screen.Home.PATTERN,
-                arguments = listOf(navArgument("category") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                })
-            ) { entry ->
-                HomeScreen(
-                    appContainer = appContainer,
-                    initialCategory = entry.arguments?.getString("category").orEmpty(),
-                    onPostClick = { postId ->
-                        navController.navigate(Screen.PostDetail.createRoute(postId))
-                    },
-                    onSearchClick = { navController.navigate(Screen.Search.createRoute()) }
-                )
-            }
-
-            composable(
-                route = Screen.Search.route,
-                arguments = listOf(navArgument("query") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                })
-            ) { entry ->
-                SearchScreen(
-                    appContainer = appContainer,
-                    initialQuery = entry.arguments?.getString("query").orEmpty(),
-                    onBack = { navController.popBackStack() },
-                    onPostClick = { postId ->
-                        navController.navigate(Screen.PostDetail.createRoute(postId))
-                    }
-                )
-            }
-
-            composable(Screen.Diary.route) {
-                DiaryScreen(
-                    appContainer = appContainer,
-                    onPostClick = { postId ->
-                        navController.navigate(Screen.PostDetail.createRoute(postId))
-                    }
-                )
-            }
-
-            composable(Screen.Health.route) {
-                HealthScreen(
-                    appContainer = appContainer,
-                    onOpenSettings = { switchTab(Screen.Settings.route) },
-                    onOpenBills = { navController.navigate(Screen.Bills.route) }
-                )
-            }
-
-            composable(Screen.Bills.route) {
-                BillsScreen(
-                    appContainer = appContainer,
-                    onBack = { navController.popBackStack() },
-                    onOpenSettings = { switchTab(Screen.Settings.route) },
-                    onOpenReport = { month ->
-                        navController.navigate(Screen.BillReport.createRoute(month))
-                    }
-                )
-            }
-
-            composable(
-                route = Screen.BillReport.route,
-                arguments = listOf(navArgument("month") { type = NavType.StringType })
-            ) { entry ->
-                BillReportScreen(
-                    appContainer = appContainer,
-                    month = entry.arguments?.getString("month").orEmpty(),
-                    onBack = { navController.popBackStack() },
-                    onOpenSettings = { switchTab(Screen.Settings.route) }
-                )
-            }
-
-            composable(Screen.Storage.route) {
-                StorageScreen(
-                    appContainer = appContainer,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                route = Screen.PostDetail.route,
-                arguments = listOf(navArgument("postId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val postId = backStackEntry.arguments?.getString("postId") ?: ""
-                PostDetailScreen(
-                    appContainer = appContainer,
-                    postId = postId,
-                    onBack = { navController.popBackStack() },
-                    onEditPost = { navController.navigate(Screen.Editor.createRoute(postId)) },
-                    onLoginRequired = { navController.navigate(Screen.Login.route) },
-                    onCategoryClick = { category ->
-                        navController.navigate(Screen.Home.createRoute(category)) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
+        SharedTransitionLayout {
+            // 共享元素要在同一个作用域里登记，页与页才知道谁和谁是同一块封面。
+            val sharedScope: SharedTransitionScope = this@SharedTransitionLayout
+            NavHost(
+                navController = navController,
+                startDestination = if (loggedIn) Screen.Home.createRoute() else Screen.Login.route,
+                modifier = Modifier.padding(innerPadding),
+                enterTransition = { fadeIn(animationSpec = tween(300)) + slideInHorizontally { it / 4 } },
+                exitTransition = { fadeOut(animationSpec = tween(200)) },
+                popEnterTransition = { fadeIn(animationSpec = tween(300)) },
+                popExitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally { it / 4 } }
+            ) {
+                composable(Screen.Login.route) {
+                    LoginScreen(
+                        appContainer = appContainer,
+                        onLoginSuccess = {
+                            navController.navigate(Screen.Home.createRoute()) {
+                                popUpTo(Screen.Login.route) { inclusive = true }
                             }
-                            launchSingleTop = true
                         }
-                    }
-                )
-            }
+                    )
+                }
 
-            composable(Screen.Admin.route) {
-                AdminScreen(
-                    appContainer = appContainer,
-                    onPostClick = { postId -> navController.navigate(Screen.PostDetail.createRoute(postId)) },
-                    onNewPost = { navController.navigate(Screen.Editor.createRoute()) },
-                    onEditPost = { postId -> navController.navigate(Screen.Editor.createRoute(postId)) },
-                    onViewComments = { navController.navigate(Screen.Comments.route) },
-                    onViewPages = { navController.navigate(Screen.Pages.route) },
-                    onViewCategories = { navController.navigate(Screen.Categories.route) },
-                    onViewDrive = { navController.navigate(Screen.Drive.route) }
-                )
-            }
-
-            composable(Screen.Drive.route) {
-                DriveScreen(
-                    appContainer = appContainer,
-                    onBack = { navController.popBackStack() },
-                    onOpenShares = { navController.navigate(Screen.Shares.route) }
-                )
-            }
-
-            composable(Screen.Shares.route) {
-                ShareScreen(
-                    appContainer = appContainer,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(Screen.Pages.route) {
-                PagesScreen(
-                    appContainer = appContainer,
-                    onBack = { navController.popBackStack() },
-                    onNewPage = { navController.navigate(Screen.Editor.createRoute(isPage = true)) },
-                    onEditPage = { pageId ->
-                        navController.navigate(Screen.Editor.createRoute(pageId, isPage = true))
-                    }
-                )
-            }
-
-            composable(Screen.Categories.route) {
-                CategoriesScreen(
-                    appContainer = appContainer,
-                    onBack = { navController.popBackStack() },
-                    // 首页的分类筛选就是按名字过滤已加载文章，直接复用它。
-                    onOpenCategory = { name -> switchTab(Screen.Home.createRoute(name)) }
-                )
-            }
-
-            composable(Screen.Comments.route) {
-                CommentsScreen(
-                    appContainer = appContainer,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-
-            composable(
-                route = Screen.Editor.route,
-                arguments = listOf(
-                    navArgument("postId") {
+                composable(
+                    route = Screen.Home.PATTERN,
+                    arguments = listOf(navArgument("category") {
                         type = NavType.StringType
                         defaultValue = ""
-                    },
-                    navArgument("isPage") {
-                        type = NavType.BoolType
-                        defaultValue = false
+                    })
+                ) { entry ->
+                    SharedScope(sharedScope, this) {
+                        HomeScreen(
+                            appContainer = appContainer,
+                            initialCategory = entry.arguments?.getString("category").orEmpty(),
+                            onPostClick = { postId ->
+                                navController.navigate(Screen.PostDetail.createRoute(postId))
+                            },
+                            onSearchClick = { navController.navigate(Screen.Search.createRoute()) }
+                        )
                     }
-                )
-            ) { backStackEntry ->
-                val postId = backStackEntry.arguments?.getString("postId")?.takeIf { it.isNotBlank() }
-                val isPage = backStackEntry.arguments?.getBoolean("isPage") ?: false
-                EditorScreen(
-                    appContainer = appContainer,
-                    postId = postId,
-                    isPage = isPage,
-                    onBack = { navController.popBackStack() },
-                    onSaved = { navController.popBackStack() }
-                )
-            }
+                }
 
-            composable(Screen.Settings.route) {
-                SettingsScreen(
-                    appContainer = appContainer,
-                    onOpenStorage = { navController.navigate(Screen.Storage.route) },
-                    onLogout = {
-                        navController.navigate(Screen.Login.route) {
-                            popUpTo(0) { inclusive = true }
-                        }
+                composable(
+                    route = Screen.Search.route,
+                    arguments = listOf(navArgument("query") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    })
+                ) { entry ->
+                    SharedScope(sharedScope, this) {
+                        SearchScreen(
+                            appContainer = appContainer,
+                            initialQuery = entry.arguments?.getString("query").orEmpty(),
+                            onBack = { navController.popBackStack() },
+                            onPostClick = { postId ->
+                                navController.navigate(Screen.PostDetail.createRoute(postId))
+                            }
+                        )
                     }
-                )
+                }
+
+                composable(Screen.Diary.route) {
+                    SharedScope(sharedScope, this) {
+                        DiaryScreen(
+                            appContainer = appContainer,
+                            onPostClick = { postId ->
+                                navController.navigate(Screen.PostDetail.createRoute(postId))
+                            }
+                        )
+                    }
+                }
+
+                composable(Screen.Health.route) {
+                    HealthScreen(
+                        appContainer = appContainer,
+                        onOpenSettings = { switchTab(Screen.Settings.route) },
+                        onOpenBills = { navController.navigate(Screen.Bills.route) }
+                    )
+                }
+
+                composable(Screen.Bills.route) {
+                    BillsScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        onOpenSettings = { switchTab(Screen.Settings.route) },
+                        onOpenReport = { month ->
+                            navController.navigate(Screen.BillReport.createRoute(month))
+                        }
+                    )
+                }
+
+                composable(
+                    route = Screen.BillReport.route,
+                    arguments = listOf(navArgument("month") { type = NavType.StringType })
+                ) { entry ->
+                    BillReportScreen(
+                        appContainer = appContainer,
+                        month = entry.arguments?.getString("month").orEmpty(),
+                        onBack = { navController.popBackStack() },
+                        onOpenSettings = { switchTab(Screen.Settings.route) }
+                    )
+                }
+
+                composable(Screen.Storage.route) {
+                    StorageScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    route = Screen.PostDetail.route,
+                    arguments = listOf(navArgument("postId") { type = NavType.StringType }),
+                    // 详情页只做淡入淡出：封面已经由共享元素从卡片飞到首屏，
+                    // 页面再横着滑会让同一块图分成两股劲儿。
+                    enterTransition = { fadeIn(animationSpec = tween(300)) },
+                    exitTransition = { fadeOut(animationSpec = tween(200)) },
+                    popEnterTransition = { fadeIn(animationSpec = tween(300)) + slideInHorizontally { it / 4 } },
+                    popExitTransition = { fadeOut(animationSpec = tween(200)) + slideOutHorizontally { it / 4 } }
+                ) { backStackEntry ->
+                    val postId = backStackEntry.arguments?.getString("postId") ?: ""
+                    SharedScope(sharedScope, this) {
+                        PostDetailScreen(
+                            appContainer = appContainer,
+                            postId = postId,
+                            onBack = { navController.popBackStack() },
+                            onEditPost = { navController.navigate(Screen.Editor.createRoute(postId)) },
+                            onLoginRequired = { navController.navigate(Screen.Login.route) },
+                            onCategoryClick = { category ->
+                                navController.navigate(Screen.Home.createRoute(category)) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                }
+                            }
+                        )
+                    }
+                }
+
+                composable(Screen.Admin.route) {
+                    AdminScreen(
+                        appContainer = appContainer,
+                        onPostClick = { postId -> navController.navigate(Screen.PostDetail.createRoute(postId)) },
+                        onNewPost = { navController.navigate(Screen.Editor.createRoute()) },
+                        onEditPost = { postId -> navController.navigate(Screen.Editor.createRoute(postId)) },
+                        onViewComments = { navController.navigate(Screen.Comments.route) },
+                        onViewPages = { navController.navigate(Screen.Pages.route) },
+                        onViewCategories = { navController.navigate(Screen.Categories.route) },
+                        onViewDrive = { navController.navigate(Screen.Drive.route) }
+                    )
+                }
+
+                composable(Screen.Drive.route) {
+                    DriveScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        onOpenShares = { navController.navigate(Screen.Shares.route) }
+                    )
+                }
+
+                composable(Screen.Shares.route) {
+                    ShareScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.Pages.route) {
+                    PagesScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        onNewPage = { navController.navigate(Screen.Editor.createRoute(isPage = true)) },
+                        onEditPage = { pageId ->
+                            navController.navigate(Screen.Editor.createRoute(pageId, isPage = true))
+                        }
+                    )
+                }
+
+                composable(Screen.Categories.route) {
+                    CategoriesScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        // 首页的分类筛选就是按名字过滤已加载文章，直接复用它。
+                        onOpenCategory = { name -> switchTab(Screen.Home.createRoute(name)) }
+                    )
+                }
+
+                composable(Screen.Comments.route) {
+                    CommentsScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    route = Screen.Editor.route,
+                    arguments = listOf(
+                        navArgument("postId") {
+                            type = NavType.StringType
+                            defaultValue = ""
+                        },
+                        navArgument("isPage") {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        }
+                    )
+                ) { backStackEntry ->
+                    val postId = backStackEntry.arguments?.getString("postId")?.takeIf { it.isNotBlank() }
+                    val isPage = backStackEntry.arguments?.getBoolean("isPage") ?: false
+                    EditorScreen(
+                        appContainer = appContainer,
+                        postId = postId,
+                        isPage = isPage,
+                        onBack = { navController.popBackStack() },
+                        onSaved = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.Settings.route) {
+                    SettingsScreen(
+                        appContainer = appContainer,
+                        onOpenStorage = { navController.navigate(Screen.Storage.route) },
+                        onLogout = {
+                            navController.navigate(Screen.Login.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * 共享元素要同时知道「哪个 SharedTransitionLayout 登记它」和「这一页的进出动画作用域」，
+ * 后者每个目的地各不相同，只能在这里逐个递给页面。
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun SharedScope(
+    shared: SharedTransitionScope,
+    animated: AnimatedContentScope,
+    content: @Composable () -> Unit
+) {
+    CompositionLocalProvider(
+        LocalSharedTransitionScope provides shared,
+        LocalNavAnimatedScope provides animated,
+        content = content
+    )
 }

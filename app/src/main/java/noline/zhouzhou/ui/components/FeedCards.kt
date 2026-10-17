@@ -1,7 +1,8 @@
 package noline.zhouzhou.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -54,12 +55,16 @@ private val CoverHues = listOf(
 
 private fun Int.wrap(size: Int): Int = ((this % size) + size) % size
 
+/** 长按预览的空封面要和列表里的文字封面取同一个色，别各搞一套。 */
+internal fun coverHue(seed: Int): Color = CoverHues[seed.wrap(CoverHues.size)]
+
 /**
  * 封面图。外链图片常常挂在早已失效的图床上，请求既不成功也不报错，
  * 所以失败和超时都按「没有封面」处理，让卡片退回文字封面，不留一块空白坑。
+ * 搜索结果的缩略图也复用它，坏图同样不该留白。
  */
 @Composable
-private fun CoverImage(
+internal fun CoverImage(
     url: String,
     onUnavailable: () -> Unit,
     modifier: Modifier = Modifier,
@@ -155,7 +160,9 @@ private fun CatTag(name: String) {
 /**
  * 双列卡：站点的 post-card 语言——白面 + 1px 蓝灰描边 + 一层浅投影，
  * 封面贴着卡顶铺满，标题两行、摘要两行，底部一排 stat-item 胶囊。
+ * 长按弹预览，点封面那块和详情页共享。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun WaterfallPostCard(
     post: Post,
@@ -197,59 +204,61 @@ fun WaterfallPostCard(
         post.commentCount > 0 ||
         (post.displayDate.isNotBlank() && coverDate == null)
 
-    Column(
-        modifier
-            .fillMaxWidth()
-            .noLineCard(shape)
-            .clickable(onClick = onClick)
-    ) {
-        if (cover != null) {
-            CoverImage(
-                url = cover,
-                onUnavailable = { coverGone = true },
-                modifier = Modifier.fillMaxWidth().aspectRatio(ratio),
-                clipShape = topShape
-            )
-        } else if (textCover) {
-            TextCover(
-                title = coverText,
-                seed = seed,
-                date = coverDate,
-                modifier = Modifier.heightIn(min = 112.dp)
-            )
-        }
-
-        if (showBand) Column(
-            modifier = Modifier
+    PostPeekBox(post = post, onClick = onClick, modifier = modifier) { open, peek ->
+        Column(
+            Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 11.dp)
+                .noLineCard(shape)
+                .combinedClickable(onClick = open, onLongClick = peek)
         ) {
-            if (bodyText.isNotBlank()) {
-                Text(
-                    text = bodyText,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = if (textCover) FontWeight.Normal else FontWeight.ExtraBold,
-                    maxLines = if (textCover || post.hasMeaningfulTitle || cover != null) 2 else 4,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = MaterialTheme.typography.titleSmall.lineHeight,
-                    color = if (textCover) t.textSecondary else t.textStrong
+            if (cover != null) {
+                CoverImage(
+                    url = cover,
+                    onUnavailable = { coverGone = true },
+                    modifier = Modifier.fillMaxWidth().aspectRatio(ratio).sharedPostCover(post.postId),
+                    clipShape = topShape
                 )
-                Spacer(Modifier.height(10.dp))
+            } else if (textCover) {
+                TextCover(
+                    title = coverText,
+                    seed = seed,
+                    date = coverDate,
+                    modifier = Modifier.heightIn(min = 112.dp).sharedPostCover(post.postId)
+                )
             }
-            if (hasMetaRow) Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+
+            if (showBand) Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 11.dp)
             ) {
-                post.categories.firstOrNull()?.let { CatTag(it) }
-                if (post.commentCount > 0) {
-                    StatPill("${post.commentCount}", Icons.Default.ChatBubbleOutline)
-                }
-                if (post.displayDate.isNotBlank()) {
+                if (bodyText.isNotBlank()) {
                     Text(
-                        text = post.displayDate,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = t.textLight
+                        text = bodyText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = if (textCover) FontWeight.Normal else FontWeight.ExtraBold,
+                        maxLines = if (textCover || post.hasMeaningfulTitle || cover != null) 2 else 4,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = MaterialTheme.typography.titleSmall.lineHeight,
+                        color = if (textCover) t.textSecondary else t.textStrong
                     )
+                    Spacer(Modifier.height(10.dp))
+                }
+                if (hasMetaRow) Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    post.categories.firstOrNull()?.let { CatTag(it) }
+                    if (post.commentCount > 0) {
+                        StatPill("${post.commentCount}", Icons.Default.ChatBubbleOutline)
+                    }
+                    if (post.displayDate.isNotBlank()) {
+                        Text(
+                            text = post.displayDate,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = t.textLight
+                        )
+                    }
                 }
             }
         }
@@ -259,7 +268,9 @@ fun WaterfallPostCard(
 /**
  * 单列通栏卡：站点的 status-card 版式——头像独占左列，右列自上而下是
  * 作者名 → 相对时间 → 正文 → 配图 → 操作条，正文左边缘和名字对齐。
+ * 和双列卡一样支持长按预览，配图和详情页首屏共享。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NotePostCard(
     post: Post,
@@ -271,73 +282,75 @@ fun NotePostCard(
     var coverGone by remember(post.postId) { mutableStateOf(false) }
     val cover = post.firstImage?.takeIf { !coverGone }
 
-    Row(
-        modifier
-            .fillMaxWidth()
-            .noLineCard(shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 15.dp)
-    ) {
-        FeedAvatar(name = post.author.ifBlank { post.displayTitle }, size = 42.dp)
-        Spacer(Modifier.width(12.dp))
+    PostPeekBox(post = post, onClick = onClick, modifier = modifier) { open, peek ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .noLineCard(shape)
+                .combinedClickable(onClick = open, onLongClick = peek)
+                .padding(horizontal = 16.dp, vertical = 15.dp)
+        ) {
+            FeedAvatar(name = post.author.ifBlank { post.displayTitle }, size = 42.dp)
+            Spacer(Modifier.width(12.dp))
 
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = post.author.ifBlank { "团子" },
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = t.textStrong,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = post.displayDate.ifBlank { " " },
-                style = MaterialTheme.typography.labelSmall,
-                color = t.textLight
-            )
-            Spacer(Modifier.height(7.dp))
-
-            if (post.hasMeaningfulTitle) {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = post.displayTitle,
+                    text = post.author.ifBlank { "团子" },
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = t.textStrong
+                    fontWeight = FontWeight.Bold,
+                    color = t.textStrong,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(5.dp))
-            }
-            if (post.plainExcerpt.isNotBlank()) {
                 Text(
-                    text = post.plainExcerpt,
-                    style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = 24.sp,
-                    maxLines = 6,
-                    overflow = TextOverflow.Ellipsis,
-                    color = t.textMain
+                    text = post.displayDate.ifBlank { " " },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = t.textLight
                 )
-            }
-            if (cover != null) {
                 Spacer(Modifier.height(7.dp))
-                CoverImage(
-                    url = cover,
-                    onUnavailable = { coverGone = true },
-                    modifier = Modifier.fillMaxWidth().height(180.dp),
-                    clipShape = RoundedCornerShape(8.dp)
-                )
-            }
 
-            Spacer(Modifier.height(11.dp))
-            Box(Modifier.fillMaxWidth().height(1.dp).background(t.hairline))
-            Spacer(Modifier.height(7.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                post.categories.firstOrNull()?.let { CatTag(it) }
-                if (post.commentCount > 0) {
-                    StatPill("${post.commentCount}", Icons.Default.ChatBubbleOutline)
+                if (post.hasMeaningfulTitle) {
+                    Text(
+                        text = post.displayTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color = t.textStrong
+                    )
+                    Spacer(Modifier.height(5.dp))
+                }
+                if (post.plainExcerpt.isNotBlank()) {
+                    Text(
+                        text = post.plainExcerpt,
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 24.sp,
+                        maxLines = 6,
+                        overflow = TextOverflow.Ellipsis,
+                        color = t.textMain
+                    )
+                }
+                if (cover != null) {
+                    Spacer(Modifier.height(7.dp))
+                    CoverImage(
+                        url = cover,
+                        onUnavailable = { coverGone = true },
+                        modifier = Modifier.fillMaxWidth().height(180.dp).sharedPostCover(post.postId),
+                        clipShape = RoundedCornerShape(8.dp)
+                    )
+                }
+
+                Spacer(Modifier.height(11.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(t.hairline))
+                Spacer(Modifier.height(7.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    post.categories.firstOrNull()?.let { CatTag(it) }
+                    if (post.commentCount > 0) {
+                        StatPill("${post.commentCount}", Icons.Default.ChatBubbleOutline)
+                    }
                 }
             }
         }
