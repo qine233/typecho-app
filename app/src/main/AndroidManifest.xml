@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 自更新：从设置页里用户亲手放行，不是装上就有权 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 常驻状态通知。Android 13 起不给权限 notify() 直接抛异常。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- WorkManager 的加急任务（通知上点「立即补交」）内部要借一次前台服务。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
         android:name=".TypechoApplication"
@@ -25,6 +29,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 只接自己发的 PendingIntent，不对外暴露 -->
+        <receiver
+            android:name=".data.sync.StatusActionReceiver"
+            android:exported="false" />
 
         <!-- 更新包落在 cacheDir/updates，安装器是另一个进程，只能经 FileProvider 给 URI -->
         <provider

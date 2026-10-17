@@ -21,6 +21,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
+import noline.zhouzhou.data.sync.StatusNotifier
 import noline.zhouzhou.ui.screens.admin.AdminScreen
 import noline.zhouzhou.ui.screens.admin.CategoriesScreen
 import noline.zhouzhou.ui.screens.admin.CommentsScreen
@@ -89,7 +90,9 @@ private val SettingsTab = TabSpec(
 @Composable
 fun TypechoNavHost(
     appContainer: AppContainer,
-    navController: NavHostController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
+    deepLink: String? = null,
+    onDeepLinkShown: () -> Unit = {}
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     // 带参数注册的目标，destination.route 是「home?category={category}」这样的模板，
@@ -123,6 +126,15 @@ fun TypechoNavHost(
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
             launchSingleTop = true
             restoreState = true
+        }
+    }
+
+    // 通知点进来落在「数据与存储」。放在 loggedIn 解析之后，是为了等图建好，
+    // 否则 navigate 会打在一个还不存在的路由上。
+    LaunchedEffect(deepLink) {
+        if (deepLink == StatusNotifier.DEEP_LINK) {
+            navController.navigate(Screen.Storage.route) { launchSingleTop = true }
+            onDeepLinkShown()
         }
     }
 

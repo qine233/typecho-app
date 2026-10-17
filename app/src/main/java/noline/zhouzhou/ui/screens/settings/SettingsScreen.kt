@@ -1,5 +1,8 @@
 package noline.zhouzhou.ui.screens.settings
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -14,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -21,6 +25,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -37,6 +42,7 @@ import noline.zhouzhou.ui.theme.NoLineChip
 import noline.zhouzhou.ui.theme.noLineFieldColors
 import noline.zhouzhou.ui.typechoViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +72,25 @@ fun SettingsScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // 常驻通知与后台补交
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val persistentStatus by appContainer.settingsRepository.persistentStatus.collectAsState(false)
+    val autoSync by appContainer.settingsRepository.autoSync.collectAsState(true)
+    val askNotifications = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // 系统那一层没放行就别开开关，否则开关是绿的、通知一条也不会出现。
+        if (granted) scope.launch { appContainer.statusRepository.setEnabled(true) }
+    }
+    val turnOnStatus: () -> Unit = {
+        if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            scope.launch { appContainer.statusRepository.setEnabled(true) }
+        } else {
+            askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     if (uiState.showLogoutDialog) {
@@ -294,6 +319,37 @@ fun SettingsScreen(
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
+            SettingsSectionHeader("后台与通知")
+            SettingsSwitchItem(
+                icon = Icons.Default.Notifications,
+                title = "常驻状态通知",
+                subtitle = "在通知栏长期挂着还有多少条没交到站点，点开直达「数据与存储」",
+                checked = persistentStatus,
+                onCheckedChange = { on ->
+                    if (on) turnOnStatus() else scope.launch { appContainer.statusRepository.setEnabled(false) }
+                }
+            )
+            SettingsSwitchItem(
+                icon = Icons.Default.Sync,
+                title = "后台自动补交",
+                subtitle = "约每 15 分钟查一次本机队列，有网就交上去；关掉之后只在打开 App 时补交",
+                checked = autoSync,
+                enabled = persistentStatus,
+                onCheckedChange = { on -> scope.launch { appContainer.statusRepository.setAutoSync(on) } }
+            )
+            if (persistentStatus) {
+                Text(
+                    "系统会把后台任务合并到省电窗口里，所以这条通知说的从来不是「刚刚」，而是「上一次查过」。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
             // About section
             SettingsSectionHeader(stringResource(R.string.settings_about))
 
@@ -422,9 +478,50 @@ private fun SettingsInfoItem(
     }
 }
 
+/**
+ * 开关行。跟别的设置项一样是一张卡，只是右边换成 Switch。
+ * [enabled] 为假时整行灰掉——后台补交离了那条通知没有意义。
+ */
 @Composable
-private fun DarkModeSelector(current: String, onSelect: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun SettingsSwitchItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Card(
+        onClick = { if (enabled) onCheckedChange(!checked) },
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                icon, contentDescription = null,
+                tint = if (enabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        }
+    }
+}
+
+@Composable
+private fun DarkModeSelector(current: String, onSelect: (String) -> Unit) {    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(
             "system" to "跟随系统" to Icons.Default.BrightnessAuto,
             "light" to "浅色" to Icons.Default.LightMode,

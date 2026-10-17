@@ -45,6 +45,7 @@
 - 文章列表持久化缓存，冷启动先出内容再刷新
 - 设置 → 检测更新：问 GitHub Releases 要最新版，有更新就下 apk 交给系统安装器；下载可选 GitHub 镜像站加速，下完对 sha256
 - 设置 → 数据与存储：按「安装包 / 图片缓存 / 更新包 / 文章缓存 / 其他缓存 / 本地草稿 / 待同步记录 / 账号数据」分类列出实际占用并画成占比条，缓存可单类清理或一键全清；草稿和待同步队列只报数、给逐条删除和立即补交，永远不进「清理缓存」，不会被顺手清掉
+- 设置 → 后台与通知：常驻一条工作状态通知，写清还有多少条记录没交到站点、上一次补交是什么时候，点开直达「数据与存储」，通知上带「立即补交」；后台补交走 WorkManager 周期任务（最短 15 分钟一轮，由系统 JobScheduler 排，进程被杀排期还在），也可以整个关掉
 - 退出登录会清掉本机保存的凭证
 
 ## 技术栈
@@ -56,8 +57,9 @@
 | 网络 | OkHttp 4.12；XML-RPC 自己实现（`XmlRpcClient` 手写编解码，无第三方 XML-RPC 库）；NoLine / Cloudreve 走 kotlinx.serialization |
 | 图片 | Coil 3 |
 | 存储 | DataStore Preferences（配置、互动状态）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康与记账离线队列 / 记账概览与品名候选） |
+| 后台 | WorkManager 2.10 周期任务补交离线队列 + 常驻状态通知（`IMPORTANCE_LOW`，不响不弹） |
 | 构建 | AGP 8.7.3、Gradle 8.9 wrapper、JDK 17、minSdk 26 / target & compileSdk 35 |
-| 测试 | JUnit 4 + kotlinx.serialization，138 个单元测试（`app/src/test`） |
+| 测试 | JUnit 4 + kotlinx.serialization，146 个单元测试（`app/src/test`） |
 
 ## 目录结构
 
@@ -67,7 +69,8 @@ app/src/main/java/noline/zhouzhou/
 ├── data/
 │   ├── model/       # Post / Comment / HealthOverview 等数据类
 │   ├── remote/      # XmlRpcClient（协议编解码）、TypechoApi（业务方法）、NolineApi / CloudreveApi（REST）
-│   └── repository/  # 缓存、密钥、离线队列、各业务的仓库层
+│   ├── repository/  # 缓存、密钥、离线队列、各业务的仓库层
+│   └── sync/        # 常驻状态通知 + WorkManager 补交任务
 └── ui/
     ├── navigation/  # NavGraph + 自绘 TypechoTabBar
     ├── components/  # 卡片、评论项、小红书式头部/引导文案

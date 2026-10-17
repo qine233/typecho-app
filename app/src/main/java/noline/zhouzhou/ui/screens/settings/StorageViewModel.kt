@@ -60,6 +60,8 @@ class StorageViewModel(private val container: AppContainer) : ViewModel() {
             _uiState.update {
                 it.copy(usage = usage, drafts = drafts, healthPending = health, billsPending = bills, isBusy = false)
             }
+            // 这个页面是队列的唯一出口，重算一次就把通知一起对平
+            container.statusRepository.publish()
         }
     }
 

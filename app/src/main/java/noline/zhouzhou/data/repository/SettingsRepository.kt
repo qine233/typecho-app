@@ -38,6 +38,10 @@ class SettingsRepository(private val context: Context) {
         val CLOUDREVE_EMAIL = stringPreferencesKey("cloudreve_email")
         val CLOUDREVE_PASSWORD = stringPreferencesKey("cloudreve_password_cipher")
         val UPDATE_MIRROR = stringPreferencesKey("update_mirror_id")
+        val STATUS_NOTIFICATION = booleanPreferencesKey("status_notification")
+        val STATUS_AUTO_SYNC = booleanPreferencesKey("status_auto_sync")
+        val LAST_FLUSH_AT = longPreferencesKey("last_flush_at")
+        val LAST_FLUSH_NOTE = stringPreferencesKey("last_flush_note")
     }
 
     val siteConfig: Flow<SiteConfig> = context.dataStore.data.map { prefs ->
@@ -107,6 +111,35 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setRememberMe(remember: Boolean) {
         context.dataStore.edit { it[Keys.REMEMBER_ME] = remember }
+    }
+
+    // ── 常驻状态通知与后台补交 ──
+
+    val persistentStatus: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.STATUS_NOTIFICATION] ?: false
+    }
+
+    val autoSync: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.STATUS_AUTO_SYNC] ?: true
+    }
+
+    val lastFlush: Flow<Pair<Long, String>> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.LAST_FLUSH_AT] ?: 0L) to (prefs[Keys.LAST_FLUSH_NOTE] ?: "")
+    }
+
+    suspend fun setPersistentStatus(on: Boolean) {
+        context.dataStore.edit { it[Keys.STATUS_NOTIFICATION] = on }
+    }
+
+    suspend fun setAutoSync(on: Boolean) {
+        context.dataStore.edit { it[Keys.STATUS_AUTO_SYNC] = on }
+    }
+
+    suspend fun recordFlush(at: Long, note: String) {
+        context.dataStore.edit {
+            it[Keys.LAST_FLUSH_AT] = at
+            it[Keys.LAST_FLUSH_NOTE] = note
+        }
     }
 
     // ── NoLine 健康接口 ──

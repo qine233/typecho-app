@@ -343,6 +343,7 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
                 )
             }
         }
+        container.refreshStatusNotice()
     }
 
     fun consumeToast() = _uiState.update { it.copy(toast = null) }

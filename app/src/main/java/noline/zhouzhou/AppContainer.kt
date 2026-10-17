@@ -1,12 +1,17 @@
 package noline.zhouzhou
 
 import android.app.Application
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import noline.zhouzhou.data.remote.CloudreveApi
 import noline.zhouzhou.data.remote.NolineApi
 import noline.zhouzhou.data.remote.TypechoApi
 import noline.zhouzhou.data.repository.*
+import noline.zhouzhou.data.sync.StatusRepository
 
 class AppContainer(val application: Application) {
     val api: TypechoApi by lazy { TypechoApi() }
@@ -44,6 +49,32 @@ class AppContainer(val application: Application) {
     val cloudreveRepository: CloudreveRepository by lazy {
         CloudreveRepository(cloudreveApi) { settingsRepository.cloudreveConfig.first() }
     }
+    val statusRepository: StatusRepository by lazy {
+        StatusRepository(
+            context = application,
+            settings = settingsRepository,
+            healthStore = healthLocalStore,
+            billsStore = billsLocalStore,
+            draftStore = draftStore,
+            healthRepository = healthRepository,
+            billsRepository = billsRepository
+        )
+    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * 队列刚变过就让通知改口。周期任务最短 15 分钟一轮，等那一轮的话，
+     * 用户刚离线记的一条会在通知里缺席很久。
+     */
+    fun refreshStatusNotice() {
+        scope.launch { runCatching { statusRepository.publish() } }
+    }
+
+    /** 进程起来时对一遍账：开关开着就把周期任务补上，通知跟着当前队列刷新。 */
+    fun resumeStatusNotice() {
+        scope.launch { runCatching { statusRepository.resumeFromSettings() } }
+    }
 }
 
 class TypechoApplication : Application() {
@@ -53,5 +84,7 @@ class TypechoApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        // 进程可能被系统回收过，这期间队列早变了样，起来第一件事是把通知对回实际条数。
+        container.resumeStatusNotice()
     }
 }

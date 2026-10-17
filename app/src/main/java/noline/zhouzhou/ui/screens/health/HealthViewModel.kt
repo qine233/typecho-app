@@ -179,6 +179,8 @@ class HealthViewModel(private val container: AppContainer) : ViewModel() {
                 )
             }
         }
+        // 刚离线记的那一条，通知上不该等到下一轮周期任务才出现
+        container.refreshStatusNotice()
     }
 
     fun consumeToast() = _uiState.update { it.copy(toast = null) }
