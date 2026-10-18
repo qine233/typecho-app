@@ -53,6 +53,7 @@
 - **桌面小组件**（3×3，长按桌面 → 微件 → NLecho）：本月合计、今天花了几块、预算进度（十个格子的字符条 + 百分比 + 「还剩 / 超了」）、几笔待同步，底下是「记一笔」和最近买过的三个品名——点品名直接进录入面板，**品名和分类已经替用户填好了**（走 `nline://bills/add?title=…&kind=…` 深链，中文按 UTF-8 百分号编码，`盐&糖` 这种带符号的品名也传得过去）。卡片只读本机缓存，断网也画得出来；「刷新」只拉数据、**不会**替用户把队列里的流水提交上去。在 App 里记完一笔、改完预算，卡片当场跟上；开一次 App 也会重画一次（升级之后系统不主动通知，不然会一直停在加载圈）
 
 **通用**
+- **底部导航是一颗悬浮的液态玻璃胶囊**：离底边抬起一截，四周不贴边，底下压着页面内容。玻璃是真的透——整块页面先被录成一层可采样画面（Haze），胶囊拿它做背景模糊，所以卡片滚过去时能看见颜色在玻璃下面化开；上缘再叠一道由卡片色淡出的反光，配 1px 描边和一层投影撑出厚度。Android 12 以下拿不到 `RenderEffect`，自动退成底色更实的毛玻璃，形态不变。代价是这一圈不再由外层 Scaffold 占位：五个 Tab 页各自用 `rememberTabBarInset()` 把列表底部和 FAB 让开，详情页那类不带底栏的页面不受影响
 - 深色模式（跟随系统 / 浅色 / 深色）、字体缩放（全局生效，包括正文渲染区）
 - 文章列表持久化缓存，冷启动先出内容再刷新
 - 设置 → 检测更新：问 GitHub Releases 要最新版，有更新就下 apk 交给系统安装器；下载可选 GitHub 镜像站加速，下完对 sha256
@@ -64,7 +65,7 @@
 
 | | |
 | --- | --- |
-| 语言 / UI | Kotlin 2.1、Jetpack Compose（compose-bom 2024.12.01）、Material 3 |
+| 语言 / UI | Kotlin 2.1、Jetpack Compose（compose-bom 2024.12.01）、Material 3；悬浮底栏的背景模糊用 Haze 1.5.3（`hazeSource` 录页面 + `hazeEffect` 采样模糊） |
 | 架构 | 单 Activity + Navigation-Compose；`AppContainer` 手写依赖注入；ViewModel + StateFlow |
 | 网络 | OkHttp 4.12；XML-RPC 自己实现（`XmlRpcClient` 手写编解码，无第三方 XML-RPC 库）；NoLine / Cloudreve 走 kotlinx.serialization；搜索订阅用 `XmlPullParser` 手解（容忍截断与前缀警告） |
 | 图片 | Coil 3 |

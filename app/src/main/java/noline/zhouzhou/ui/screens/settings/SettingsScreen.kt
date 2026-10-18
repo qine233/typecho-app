@@ -38,6 +38,7 @@ import noline.zhouzhou.data.repository.NolineReport
 import noline.zhouzhou.data.repository.StorageRepository
 import noline.zhouzhou.data.repository.StorageUsage
 import noline.zhouzhou.ui.components.NolineGuide
+import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.NoLineChip
 import noline.zhouzhou.ui.theme.noLineFieldColors
 import noline.zhouzhou.ui.typechoViewModel
@@ -53,6 +54,7 @@ fun SettingsScreen(
 ) {
     val viewModel = typechoViewModel<SettingsViewModel>(appContainer) { SettingsViewModel(it) }
     val uiState by viewModel.uiState.collectAsState()
+    val tabBarInset = rememberTabBarInset()
 
     // 从「数据与存储」页清理完返回，这里要跟着变，所以统计跟着 ON_RESUME 重跑一次
     var storageTick by remember { mutableIntStateOf(0) }
@@ -124,9 +126,10 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                // 底部不再交给 Scaffold 的导航栏内边距，改由玻璃胶囊那一条统一让位
+                .padding(top = innerPadding.calculateTopPadding())
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + tabBarInset)
         ) {
             // Site info card
             Card(

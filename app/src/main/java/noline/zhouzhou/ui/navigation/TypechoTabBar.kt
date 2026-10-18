@@ -23,12 +23,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import noline.zhouzhou.ui.theme.LocalNoLine
 
 /** 自绘的底栏条目，替代 Material NavigationBar 的 pill + tone 容器造型。 */
@@ -42,63 +47,104 @@ data class TabSpec(
 )
 
 /**
- * 底部导航照站点顶栏的「玻璃胶囊」那一态做：一颗浮在页底的胶囊，
- * 1px 蓝灰描边 + 半透明白底，选中项垫一块强调色淡底、字换成强调色。
+ * 底部导航：一颗真的悬浮胶囊。
  *
- * 没有真高斯模糊（minSdk 26 上 RenderEffect 用不了），所以底色给足不透明度，
- * 只留一点通透感，别让滚动的卡片把栏面糊脏。
+ * 「液态玻璃」靠 Haze 把底下的页面录成一层画面、再在这颗胶囊上做高斯模糊（Android 12+
+ * 走 RenderEffect，12 以下拿不到模糊，就退化成 tint 更实的毛玻璃色块，形态不变）。
+ * 所以页面必须能从胶囊底下滚过去 —— 外层已经不再是 Scaffold 占位，各 Tab 页要自己
+ * 用 [rememberTabBarInset] 把列表底部让出来，否则最后一行会被压在玻璃下面。
  */
 @Composable
 fun TypechoTabBar(
     tabs: List<TabSpec>,
     currentRoute: String?,
+    hazeState: HazeState,
     onTabSelected: (TabSpec) -> Unit,
     onCreateClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = LocalNoLine.current
+    val shape = CircleShape
 
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp)
             .navigationBarsPadding()
-            .padding(bottom = 8.dp, top = 2.dp)
-            .shadow(6.dp, CircleShape, ambientColor = Color(0x0F2C2D30), spotColor = Color(0x1A2C2D30))
-            .clip(CircleShape)
-            .background(t.glassBg)
-            .border(1.dp, t.cardBorder, CircleShape)
-            .height(52.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 14.dp)
+            .padding(top = 4.dp, bottom = TabBarLift)
+            .shadow(
+                14.dp, shape, clip = false,
+                ambientColor = Color(0x1F2C2D30), spotColor = Color(0x402C2D30)
+            )
+            .clip(shape)
+            .hazeEffect(hazeState) {
+                blurRadius = 26.dp
+                tints = listOf(HazeTint(t.glassBg))
+                backgroundColor = Color.Transparent
+                noiseFactor = 0.035f
+                // 拿不到模糊时（Android 12 以下）只能靠这层实底撑住，别让内容糊在字上
+                fallbackTint = HazeTint(t.glassBg)
+            }
+            .border(1.dp, t.cardBorder, shape)
+            .height(TabBarHeight)
     ) {
-        val left = tabs.take((tabs.size + 1) / 2)
-        val right = tabs.drop((tabs.size + 1) / 2)
-        left.forEach { tab ->
-            TabButton(
-                tab = tab,
-                selected = currentRoute == tab.route,
-                onClick = { onTabSelected(tab) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-        PublishButton(
-            onClick = onCreateClick,
-            modifier = Modifier.weight(1.4f)
+        // 上缘那道反光：玻璃胶囊被光照到的那条边，暗色下用卡片色提亮，别用死白
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to t.cardBg.copy(alpha = 0.55f),
+                        0.45f to t.cardBg.copy(alpha = 0.10f),
+                        0.72f to Color.Transparent
+                    )
+                )
         )
-        right.forEach { tab ->
-            TabButton(
-                tab = tab,
-                selected = currentRoute == tab.route,
-                onClick = { onTabSelected(tab) },
-                modifier = Modifier.weight(1f)
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val left = tabs.take((tabs.size + 1) / 2)
+            val right = tabs.drop((tabs.size + 1) / 2)
+            left.forEach { tab ->
+                TabButton(
+                    tab = tab,
+                    selected = currentRoute == tab.route,
+                    onClick = { onTabSelected(tab) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            PublishButton(
+                onClick = onCreateClick,
+                modifier = Modifier.weight(1.4f)
             )
-        }
-        // 非管理员只有三个标签，右侧补位保持居中
-        repeat(tabs.size % 2) {
-            Spacer(Modifier.weight(1f))
+            right.forEach { tab ->
+                TabButton(
+                    tab = tab,
+                    selected = currentRoute == tab.route,
+                    onClick = { onTabSelected(tab) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            // 非管理员只有三个标签，右侧补位保持居中
+            repeat(tabs.size % 2) {
+                Spacer(Modifier.weight(1f))
+            }
         }
     }
 }
+
+/** 胶囊抬起的高度：内容底部要让出的距离里也带着这一份。 */
+private val TabBarLift = 12.dp
+private val TabBarHeight = 54.dp
+
+/**
+ * 各 Tab 页列表底部该留多少：玻璃胶囊本身的高度 + 抬起的那截 + 系统导航栏。
+ * 底栏现在是盖在内容上的，不再由外层 Scaffold 占位，所以这一份要页面自己算。
+ */
+@Composable
+fun rememberTabBarInset(): Dp = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
+    TabBarHeight + TabBarLift
 
 @Composable
 private fun TabButton(

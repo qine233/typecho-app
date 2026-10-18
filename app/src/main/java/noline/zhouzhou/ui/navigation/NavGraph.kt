@@ -2,8 +2,9 @@ package noline.zhouzhou.ui.navigation
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,6 +20,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.ui.components.LocalNavAnimatedScope
@@ -157,28 +160,18 @@ fun TypechoNavHost(
         onDeepLinkShown()
     }
 
-    Scaffold(
-        // 外层 Scaffold 仅负责底部导航栏；顶部/底部系统栏内距交给各页面自己的 Scaffold，
-        // 否则状态栏内距会被重复计算，在标题栏上方留出一块空白。
-        contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
-        bottomBar = {
-            if (showBottomBar) {
-                TypechoTabBar(
-                    tabs = tabs,
-                    currentRoute = currentRoute,
-                    onTabSelected = { tab -> switchTab(tab.navRoute) },
-                    onCreateClick = { navController.navigate(Screen.Editor.createRoute()) }
-                )
-            }
-        }
-    ) { innerPadding ->
+    // 底栏是悬浮的，页面要从它底下滚过去，所以整块内容先被录成一层可采样的画面，
+    // 底栏再拿这一层去模糊——玻璃要真透过去看见东西才算玻璃。
+    val hazeState = remember { HazeState() }
+
+    Box(modifier = Modifier.fillMaxSize()) {
         SharedTransitionLayout {
             // 共享元素要在同一个作用域里登记，页与页才知道谁和谁是同一块封面。
             val sharedScope: SharedTransitionScope = this@SharedTransitionLayout
             NavHost(
                 navController = navController,
                 startDestination = if (loggedIn) Screen.Home.createRoute() else Screen.Login.route,
-                modifier = Modifier.padding(innerPadding),
+                modifier = Modifier.fillMaxSize().hazeSource(hazeState),
                 enterTransition = { fadeIn(animationSpec = tween(300)) + slideInHorizontally { it / 4 } },
                 exitTransition = { fadeOut(animationSpec = tween(200)) },
                 popEnterTransition = { fadeIn(animationSpec = tween(300)) },
@@ -414,6 +407,17 @@ fun TypechoNavHost(
                     )
                 }
             }
+        }
+
+        if (showBottomBar) {
+            TypechoTabBar(
+                tabs = tabs,
+                currentRoute = currentRoute,
+                hazeState = hazeState,
+                onTabSelected = { tab -> switchTab(tab.navRoute) },
+                onCreateClick = { navController.navigate(Screen.Editor.createRoute()) },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     }
 }

@@ -11,6 +11,7 @@ datastore = "1.1.1"
 work = "2.10.0"
 coil = "3.0.4"
 glance = "1.1.1"
+haze = "1.5.3"
 accompanist = "0.36.0"
 kotlinxSerialization = "1.7.3"
 junit = "4.13.2"
@@ -35,6 +36,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
+haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 accompanist-swiperefresh = { group = "com.google.accompanist", name = "accompanist-swiperefresh", version.ref = "accompanist" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }

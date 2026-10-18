@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import noline.zhouzhou.AppContainer
+import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.R
 import noline.zhouzhou.ui.components.CategoryFilterRow
 import noline.zhouzhou.ui.components.LoadMoreFooter
@@ -44,6 +45,8 @@ fun HomeScreen(
     }
     val uiState by viewModel.uiState.collectAsState()
     val gridState = rememberLazyStaggeredGridState()
+    // 底栏现在是盖在内容上的玻璃胶囊，最后一屏要能滚到它上面去
+    val tabBarInset = rememberTabBarInset()
 
     // 触底自动翻页
     LaunchedEffect(gridState, uiState.posts.size) {
@@ -115,7 +118,7 @@ fun HomeScreen(
                         state = gridState,
                         columns = StaggeredGridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 18.dp),
+                        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 18.dp + tabBarInset),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalItemSpacing = 10.dp
                     ) {

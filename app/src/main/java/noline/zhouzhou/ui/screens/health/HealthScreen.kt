@@ -35,6 +35,7 @@ import noline.zhouzhou.data.model.HealthOverview
 import noline.zhouzhou.data.model.HealthRecord
 import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.ui.components.NolineGuide
+import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.LocalAccent
 import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.typechoViewModel
@@ -49,6 +50,7 @@ fun HealthScreen(
 ) {
     val viewModel = typechoViewModel<HealthViewModel>(appContainer) { HealthViewModel(it) }
     val state by viewModel.uiState.collectAsState()
+    val tabBarInset = rememberTabBarInset()
     var sheetFor by remember { mutableStateOf<HealthRecord?>(null) }
     var showNewSheet by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
@@ -76,6 +78,7 @@ fun HealthScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
+                modifier = Modifier.padding(bottom = tabBarInset),
                 onClick = { showNewSheet = true },
                 containerColor = LocalAccent.current,
                 contentColor = Color.White,
@@ -89,7 +92,7 @@ fun HealthScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = 96.dp)
+                .padding(bottom = 40.dp + tabBarInset)
         ) {
             if (state.showSetupGuide) {
                 SetupGuide(issue = state.issue, hint = state.issueHint, onOpenSettings = onOpenSettings)

@@ -82,6 +82,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.glance.appwidget)
+    implementation(libs.haze)
 
     testImplementation(libs.junit)
     testImplementation(libs.kxml2)

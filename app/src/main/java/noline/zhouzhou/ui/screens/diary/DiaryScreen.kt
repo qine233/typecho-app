@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import noline.zhouzhou.AppContainer
+import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.R
 import noline.zhouzhou.ui.components.NotePostCard
 import noline.zhouzhou.ui.theme.LocalNoLine
@@ -36,6 +37,7 @@ fun DiaryScreen(
     val viewModel = typechoViewModel<DiaryViewModel>(appContainer) { DiaryViewModel(it) }
     val uiState by viewModel.uiState.collectAsState()
     val t = LocalNoLine.current
+    val tabBarInset = rememberTabBarInset()
 
     Scaffold(
         containerColor = t.pageBg,
@@ -73,7 +75,7 @@ fun DiaryScreen(
                 ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp + tabBarInset),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         uiState.days.forEach { day ->

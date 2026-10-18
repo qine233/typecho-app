@@ -28,6 +28,7 @@ import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.data.model.Post
 import noline.zhouzhou.ui.components.LoadMoreFooter
+import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.theme.noLineCard
 import noline.zhouzhou.ui.typechoViewModel
@@ -50,6 +51,7 @@ fun AdminScreen(
     val t = LocalNoLine.current
     var postToDelete by remember { mutableStateOf<Post?>(null) }
     val listState = rememberLazyListState()
+    val tabBarInset = rememberTabBarInset()
     val scope = rememberCoroutineScope()
 
     // 快滑到底就自动取下一页
@@ -88,6 +90,7 @@ fun AdminScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
+                modifier = Modifier.padding(bottom = tabBarInset),
                 onClick = onNewPost,
                 containerColor = t.accent,
                 contentColor = t.onBrand,
@@ -184,7 +187,7 @@ fun AdminScreen(
                 }
                 else -> LazyColumn(
                     state = listState,
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 40.dp + tabBarInset),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(uiState.posts, key = { it.postId }) { post ->
