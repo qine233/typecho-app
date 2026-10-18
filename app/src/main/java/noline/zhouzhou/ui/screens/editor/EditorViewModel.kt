@@ -8,6 +8,7 @@ import noline.zhouzhou.data.model.Category
 import noline.zhouzhou.data.model.LocalDraft
 import noline.zhouzhou.data.model.Post
 import noline.zhouzhou.util.HtmlToMarkdown
+import noline.zhouzhou.util.MarkdownImages
 import noline.zhouzhou.util.CompressedImage
 import noline.zhouzhou.util.ImageCompressor
 import androidx.compose.ui.text.TextRange
@@ -40,7 +41,7 @@ data class EditorUiState(
     val isUploadingImage: Boolean = false,
     val error: String? = null,
     val saveSuccess: Boolean = false,
-    val isPreview: Boolean = false,
+    val layout: EditorLayout = EditorLayout.WRITE,
     val hasChanges: Boolean = false,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
@@ -54,6 +55,9 @@ data class EditorUiState(
     /** 发布成功但站点没回传编号时的提醒，跟着 Toast 说一次就清掉。 */
     val saveNotice: String? = null
 )
+
+/** 编辑器三种排布：只写、边写边看（分屏）、只看渲染结果。 */
+enum class EditorLayout { WRITE, SPLIT, PREVIEW }
 
 class EditorViewModel(
     private val container: AppContainer,
@@ -356,7 +360,24 @@ class EditorViewModel(
         }
     }
 
-    fun togglePreview() = _uiState.update { it.copy(isPreview = !it.isPreview) }
+    fun setLayout(layout: EditorLayout) = _uiState.update { it.copy(layout = layout) }
+
+    /** 顶栏那颗按钮只管「看不看预览」：只写 ↔ 边写边看；全屏预览时按它回到只写。 */
+    fun togglePreview() = _uiState.update {
+        it.copy(
+            layout = if (it.layout == EditorLayout.WRITE) EditorLayout.SPLIT else EditorLayout.WRITE
+        )
+    }
+
+    /** 拖拽排序：只搬正文里那张 `![..](..)`，算成一步撤销。 */
+    fun moveImage(from: Int, to: Int) {
+        val moved = MarkdownImages.move(_uiState.value.content, from, to)
+        if (moved == _uiState.value.content) return
+        commitJob?.cancel()
+        commitNow()
+        _uiState.update { it.copy(content = moved, hasChanges = true) }
+        commitNow()
+    }
 
     fun save(publish: Boolean) {
         val state = _uiState.value

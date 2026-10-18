@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,11 +17,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -28,9 +35,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import coil3.compose.AsyncImage
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.ui.theme.LocalNoLine
@@ -39,6 +52,7 @@ import noline.zhouzhou.ui.theme.noLineCard
 import noline.zhouzhou.ui.theme.noLineFieldColors
 import noline.zhouzhou.ui.typechoViewModel
 import noline.zhouzhou.util.HtmlContent
+import noline.zhouzhou.util.MarkdownImages
 import noline.zhouzhou.util.MarkdownRenderer
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -146,7 +160,9 @@ fun EditorScreen(
                                     postId != null -> R.string.admin_edit_post
                                     else -> R.string.admin_new_post
                                 }
-                            )
+                            ),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         if (uiState.draftSavedAt > 0) {
                             Text(
@@ -165,10 +181,19 @@ fun EditorScreen(
                     }
                 },
                 actions = {
+                    // 顶栏只留一个预览开关：三个模式按钮挤不下，标题会被压成竖排。
+                    val previewing = uiState.layout != EditorLayout.WRITE
                     IconButton(onClick = viewModel::togglePreview) {
                         Icon(
-                            if (uiState.isPreview) Icons.Default.Edit else Icons.Default.Visibility,
-                            contentDescription = if (uiState.isPreview) "编辑" else "预览"
+                            if (uiState.layout == EditorLayout.PREVIEW) Icons.Default.Edit
+                            else Icons.Default.Visibility,
+                            contentDescription = when (uiState.layout) {
+                                EditorLayout.WRITE -> "实时预览"
+                                EditorLayout.SPLIT -> "关闭预览"
+                                EditorLayout.PREVIEW -> "回到编辑"
+                            },
+                            tint = if (previewing) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline
                         )
                     }
                     IconButton(onClick = viewModel::toggleImmersive) {
@@ -178,6 +203,16 @@ fun EditorScreen(
                         Icon(Icons.Default.MoreVert, contentDescription = "更多")
                     }
                     DropdownMenu(expanded = showMoreOptions, onDismissRequest = { showMoreOptions = false }) {
+                        if (uiState.layout != EditorLayout.PREVIEW) {
+                            DropdownMenuItem(
+                                text = { Text("只看预览") },
+                                leadingIcon = { Icon(Icons.Default.ViewAgenda, contentDescription = null) },
+                                onClick = {
+                                    showMoreOptions = false
+                                    viewModel.setLayout(EditorLayout.PREVIEW)
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.admin_publish)) },
                             leadingIcon = { Icon(Icons.Default.Publish, contentDescription = null) },
@@ -226,14 +261,21 @@ fun EditorScreen(
                 onExit = viewModel::toggleImmersive
             )
         } else {
+            // 分屏时两块各占一半、各自滚，边写边看不用退出编辑去按预览。
+            val showEditor = uiState.layout != EditorLayout.PREVIEW
+            val showPreview = uiState.layout != EditorLayout.WRITE
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
             ) {
-                AnimatedVisibility(visible = !uiState.isPreview) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                AnimatedVisibility(visible = showEditor, modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(16.dp)
+                    ) {
                         // Title
                         OutlinedTextField(
                             value = uiState.title,
@@ -292,6 +334,19 @@ fun EditorScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                        }
+
+                        val images = remember(uiState.content) { MarkdownImages.parse(uiState.content) }
+                        if (images.isNotEmpty()) {
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                text = if (images.size > 1) "插图 ${images.size} 张 · 长按拖动排序"
+                                else "插图 1 张",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = LocalNoLine.current.textSecondary
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            ImageStrip(urls = images.map { it.url }, onMove = viewModel::moveImage)
                         }
 
                         Spacer(Modifier.height(12.dp))
@@ -391,11 +446,12 @@ fun EditorScreen(
                     }
                 }
 
-                AnimatedVisibility(visible = uiState.isPreview) {
+                AnimatedVisibility(visible = showPreview, modifier = Modifier.weight(1f)) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 14.dp, vertical = 12.dp)
                             .noLineCard(RoundedCornerShape(12.dp))
                             .padding(horizontal = 18.dp, vertical = 20.dp)
                     ) {
@@ -406,7 +462,7 @@ fun EditorScreen(
                             color = LocalNoLine.current.textStrong
                         )
                         Spacer(Modifier.height(16.dp))
-                        HtmlContent(html = MarkdownRenderer.toHtml(uiState.content))
+                        HtmlContent(html = debouncedHtml(uiState.content))
                     }
                 }
             }
@@ -716,5 +772,91 @@ private fun PublishTimeRow(epochSeconds: Long, onChange: (Long) -> Unit) {
                 TextButton(onClick = { showTime = false }) { Text("取消") }
             }
         )
+    }
+}
+
+/**
+ * 分屏的预览跟着输入走。每敲一个字就重排整篇太贵，停手 220ms 再渲，
+ * 而且渲在 Default 线程上，长文不该卡住输入框。
+ * 用 rememberSaveable 是因为切走模式时预览那半边会被移出组合，
+ * 只记 remember 的话切回来会先空一帧，看着像渲染坏了。
+ */
+@Composable
+private fun debouncedHtml(source: String): String {
+    var html by rememberSaveable(source) { mutableStateOf("") }
+    LaunchedEffect(source) {
+        delay(220)
+        html = withContext(Dispatchers.Default) { MarkdownRenderer.toHtml(source) }
+    }
+    return html
+}
+
+private val StripItem = 56.dp
+private val StripGap = 6.dp
+
+/** 正文里的插图按出现顺序排成一排，长按拖动就能换位置（改的是正文那段 Markdown）。 */
+@Composable
+private fun ImageStrip(urls: List<String>, onMove: (Int, Int) -> Unit) {
+    val t = LocalNoLine.current
+    val density = LocalDensity.current
+    val slotWidth = with(density) { (StripItem + StripGap).toPx() }
+    var dragging by remember { mutableStateOf(-1) }
+    var shift by remember { mutableStateOf(0f) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(StripGap)
+    ) {
+        urls.forEachIndexed { index, url ->
+            val lifted = dragging == index
+            Box(
+                modifier = Modifier
+                    .size(StripItem)
+                    .zIndex(if (lifted) 1f else 0f)
+                    .graphicsLayer {
+                        translationX = if (lifted) shift else 0f
+                        scaleX = if (lifted) 1.06f else 1f
+                        scaleY = if (lifted) 1.06f else 1f
+                    }
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(t.coverFallback)
+                    .pointerInput(index, urls.size) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { dragging = index; shift = 0f },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                shift += amount.x
+                            },
+                            onDragEnd = {
+                                val from = dragging
+                                val to = if (from < 0) from
+                                else (from + (shift / slotWidth).roundToInt()).coerceIn(0, urls.lastIndex)
+                                if (to in urls.indices && to != from) onMove(from, to)
+                                dragging = -1; shift = 0f
+                            },
+                            onDragCancel = { dragging = -1; shift = 0f }
+                        )
+                    }
+            ) {
+                AsyncImage(
+                    model = url,
+                    contentDescription = "第 ${index + 1} 张插图",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                // 序号角标：拖完不用猜顺序变没变。
+                Text(
+                    text = "${index + 1}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(4.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                )
+            }
+        }
     }
 }
