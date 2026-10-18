@@ -416,6 +416,7 @@ class EditorViewModel(
                     if (editing == null && id.isNotBlank()) postId = id
                     // 已经交到站点上了，本地稿就没必要留着下次问一遍。
                     container.draftStore.discard(editing, isPage)
+                    if (!isPage) syncPostCache(post)
                     // 列表页的 ViewModel 不会随返回重建，得靠这条事件才会去重取。
                     container.notifyContentChanged()
                     _uiState.update {
@@ -437,6 +438,32 @@ class EditorViewModel(
     }
 
     fun clearSaveSuccess() = _uiState.update { it.copy(saveSuccess = false, saveNotice = null) }
+
+    /**
+     * 详情页读的是文章缓存（本站 getPost 会 500，命中缓存就再也不回源），
+     * 存完不更新它，退回去看到的还是改之前的样子。
+     *
+     * 只覆盖编辑器认识的字段：手里这篇是「半成品」，link / author / 评论数一概没有，
+     * 整篇替换会把缓存里那些只有接口才知道的信息抹掉。
+     */
+    private suspend fun syncPostCache(edited: Post) {
+        val id = edited.postId.ifBlank { postId.orEmpty() }
+        if (id.isBlank()) return
+        val merged = container.postCache.get(id)
+            ?.copy(
+                postId = id,
+                title = edited.title,
+                content = edited.content,
+                excerpt = edited.excerpt,
+                tags = edited.tags,
+                categories = edited.categories,
+                status = edited.status,
+                dateCreated = edited.dateCreated
+            )
+            ?: edited.copy(postId = id)
+        container.postCache.put(merged)
+        container.postCacheStore.put(merged)
+    }
 
     private suspend fun getSiteConfig(): noline.zhouzhou.data.model.SiteConfig {
         return container.settingsRepository.siteConfig.first()

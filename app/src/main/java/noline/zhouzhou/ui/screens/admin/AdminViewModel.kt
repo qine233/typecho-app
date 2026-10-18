@@ -119,6 +119,7 @@ class AdminViewModel(private val container: AppContainer) : ViewModel() {
             val result = container.postRepository.deletePost(config, postId)
             result.onSuccess {
                 skipNextChange = true
+                invalidatePostCache(postId)
                 // 首页/日记那边还留着这一篇，靠这条事件让它们自己去重取。
                 container.notifyContentChanged()
                 _uiState.update { state ->
@@ -127,6 +128,15 @@ class AdminViewModel(private val container: AppContainer) : ViewModel() {
                 onDone()
             }
         }
+    }
+
+    /**
+     * 站点上没了，本地两份副本（内存 + 落盘）也必须跟着没：
+     * 本站 getPost 会 500，详情页命中缓存就再也不回源，留着就是一篇点得开的死文章。
+     */
+    private suspend fun invalidatePostCache(postId: String) {
+        container.postCache.remove(postId)
+        container.postCacheStore.remove(postId)
     }
 
     private suspend fun getSiteConfig(): noline.zhouzhou.data.model.SiteConfig {

@@ -42,6 +42,7 @@ fun AdminScreen(
     onViewComments: () -> Unit,
     onViewPages: () -> Unit,
     onViewCategories: () -> Unit,
+    onViewDuplicates: () -> Unit,
     onViewDrive: () -> Unit
 ) {
     val viewModel = typechoViewModel<AdminViewModel>(appContainer) { AdminViewModel(it) }
@@ -127,6 +128,13 @@ fun AdminScreen(
                         icon = Icons.Default.FolderOpen,
                         label = stringResource(R.string.admin_categories),
                         onClick = onViewCategories
+                    )
+                }
+                item {
+                    ActionCard(
+                        icon = Icons.Default.ContentCopy,
+                        label = stringResource(R.string.admin_duplicates),
+                        onClick = onViewDuplicates
                     )
                 }
                 if (uiState.driveAvailable) {

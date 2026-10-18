@@ -26,6 +26,7 @@ import noline.zhouzhou.ui.components.LocalSharedTransitionScope
 import noline.zhouzhou.ui.screens.admin.AdminScreen
 import noline.zhouzhou.ui.screens.admin.CategoriesScreen
 import noline.zhouzhou.ui.screens.admin.CommentsScreen
+import noline.zhouzhou.ui.screens.admin.DuplicatesScreen
 import noline.zhouzhou.ui.screens.admin.PagesScreen
 import noline.zhouzhou.ui.screens.bills.BillReportScreen
 import noline.zhouzhou.ui.screens.bills.BillsScreen
@@ -73,6 +74,8 @@ sealed class Screen(val route: String) {
     data object Storage : Screen("settings/storage")
     data object Pages : Screen("admin/pages")
     data object Categories : Screen("admin/categories")
+    /** 重复文章清理：整站翻页扫一遍，删的是正文一模一样的副本。 */
+    data object Duplicates : Screen("admin/duplicates")
     data object Drive : Screen("cloudreve/drive")
     data object Shares : Screen("cloudreve/shares")
 }
@@ -320,7 +323,16 @@ fun TypechoNavHost(
                         onViewComments = { navController.navigate(Screen.Comments.route) },
                         onViewPages = { navController.navigate(Screen.Pages.route) },
                         onViewCategories = { navController.navigate(Screen.Categories.route) },
-                        onViewDrive = { navController.navigate(Screen.Drive.route) }
+                        onViewDrive = { navController.navigate(Screen.Drive.route) },
+                        onViewDuplicates = { navController.navigate(Screen.Duplicates.route) }
+                    )
+                }
+
+                composable(Screen.Duplicates.route) {
+                    DuplicatesScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        onPostClick = { postId -> navController.navigate(Screen.PostDetail.createRoute(postId)) }
                     )
                 }
 

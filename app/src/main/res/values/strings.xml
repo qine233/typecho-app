@@ -59,6 +59,7 @@
     <string name="admin_comments">评论管理</string>
     <string name="admin_pages">页面管理</string>
     <string name="admin_categories">分类管理</string>
+    <string name="admin_duplicates">重复文章</string>
     <string name="admin_untitled">未命名</string>
     <string name="admin_new_post">写文章</string>
     <string name="admin_edit_post">编辑文章</string>
