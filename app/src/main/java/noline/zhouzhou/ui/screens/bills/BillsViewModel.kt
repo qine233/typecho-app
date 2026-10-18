@@ -19,6 +19,7 @@ import noline.zhouzhou.data.repository.TitleHint
 import noline.zhouzhou.data.repository.WriteOutcome
 import noline.zhouzhou.data.repository.billDelta
 import noline.zhouzhou.data.repository.unsentAdds
+import noline.zhouzhou.ui.widget.refreshBillsWidget
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -340,6 +341,12 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
             }
         }
         container.refreshStatusNotice()
+        refreshWidget()
+    }
+
+    /** 桌面那张卡片跟着这次写入重画一次，不用等半小时的系统轮询。 */
+    private fun refreshWidget() {
+        viewModelScope.launch { refreshBillsWidget(container.application) }
     }
 
     // ── 预算 ──
@@ -350,6 +357,7 @@ class BillsViewModel(private val container: AppContainer) : ViewModel() {
             container.billsRepository.saveBudget(budget)
             _uiState.update { it.copy(budgetStatus = container.billsRepository.currentBudgetStatus()) }
             container.refreshStatusNotice()
+            refreshWidget()
         }
     }
 

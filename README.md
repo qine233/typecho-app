@@ -48,6 +48,7 @@
 - **月度报告**（点「近 7 个月」的月份，或右上角「本月报告」）：整月流水一次取回后由 App 自己算合计、开火天数、日均、单笔均值、最贵一笔、按日柱状、分类占比、最贵的几笔；‹ › 逐月翻，往后的月份翻不过去。站点只给「本月」和「近 7 个月」两样，任意月份的聚合只能客户端做（`limit=0` 才是不限条数，缺省只回最近若干条）
 - 报告里会把**还没传上站点的本机记录**一起算进去，并在页脚写明「其中 N 笔还没传上站点」，不会因为离线而少算
 - **预算**：总预算 + 八个分类额度，超支时概览页/报告页的进度条画满并标「超了 ¥x」，同时常驻通知多一句「本月买菜超预算 x 元，蔬菜超了 y 元」，点开直达「买菜记账」。预算**只存在这台手机**（`bills_budget.json`），站点没有这个接口，也不进离线队列——换设备要重设
+- **桌面小组件**（3×3，长按桌面 → 微件 → NLecho）：本月合计、今天花了几块、预算进度（十个格子的字符条 + 百分比 + 「还剩 / 超了」）、几笔待同步，底下是「记一笔」和最近买过的三个品名——点品名直接进录入面板，**品名和分类已经替用户填好了**（走 `nline://bills/add?title=…&kind=…` 深链，中文按 UTF-8 百分号编码，`盐&糖` 这种带符号的品名也传得过去）。卡片只读本机缓存，断网也画得出来；「刷新」只拉数据、**不会**替用户把队列里的流水提交上去。在 App 里记完一笔、改完预算，卡片当场跟上；开一次 App 也会重画一次（升级之后系统不主动通知，不然会一直停在加载圈）
 
 **通用**
 - 深色模式（跟随系统 / 浅色 / 深色）、字体缩放（全局生效，包括正文渲染区）
@@ -66,9 +67,9 @@
 | 网络 | OkHttp 4.12；XML-RPC 自己实现（`XmlRpcClient` 手写编解码，无第三方 XML-RPC 库）；NoLine / Cloudreve 走 kotlinx.serialization；搜索订阅用 `XmlPullParser` 手解（容忍截断与前缀警告） |
 | 图片 | Coil 3 |
 | 存储 | DataStore Preferences（配置、互动状态、搜索历史）、Android Keystore AES-256-GCM（接口密钥、图床密码）、JSON 文件（文章缓存 / 健康与记账离线队列 / 记账概览、品名候选、预算与月报） |
-| 后台 | WorkManager 2.10 周期任务补交离线队列 + 常驻状态通知（`IMPORTANCE_LOW`，不响不弹） |
+| 后台 | WorkManager 2.10 周期任务补交离线队列 + 常驻状态通知（`IMPORTANCE_LOW`，不响不弹）；桌面小组件用 Glance 1.1.1（Compose 写 RemoteViews） |
 | 构建 | AGP 8.7.3、Gradle 8.9 wrapper、JDK 17、minSdk 26 / target & compileSdk 35 |
-| 测试 | JUnit 4 + kotlinx.serialization，206 个单元测试（`app/src/test`） |
+| 测试 | JUnit 4 + kotlinx.serialization，241 个单元测试（`app/src/test`） |
 
 ## 目录结构
 
@@ -84,6 +85,7 @@ app/src/main/java/noline/zhouzhou/
     ├── navigation/  # NavGraph + 自绘 TypechoTabBar
     ├── components/  # 卡片、评论项、小红书式头部/引导文案
     ├── screens/     # home / search / diary / post / editor / admin / health / bills / settings / login
+    ├── widget/      # 桌面买菜记账卡片（Glance）
     └── theme/       # 配色（暖棕强调色 + 灰底白卡）、字体
 ```
 

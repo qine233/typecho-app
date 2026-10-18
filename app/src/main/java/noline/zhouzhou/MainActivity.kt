@@ -10,10 +10,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import noline.zhouzhou.ui.navigation.TypechoNavHost
 import noline.zhouzhou.ui.theme.TypechoTheme
+import noline.zhouzhou.ui.widget.refreshBillsWidget
 
 class MainActivity : ComponentActivity() {
 
@@ -62,5 +65,14 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         deepLink.value = intent.dataString
+    }
+
+    /**
+     * 桌面卡片只读本地缓存，重画一次不花钱。App 一开就是它最该跟上的时刻——
+     * 刚记完账、刚升完级（升级之后卡片会一直停在加载圈，等系统那半小时的轮询太久）。
+     */
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch { refreshBillsWidget(this@MainActivity) }
     }
 }

@@ -28,6 +28,7 @@ import noline.zhouzhou.data.repository.BillPreflight
 import noline.zhouzhou.data.repository.PreflightError
 import noline.zhouzhou.data.repository.RecordPreflight
 import noline.zhouzhou.data.repository.TitleHint
+import noline.zhouzhou.ui.navigation.BillPrefill
 import noline.zhouzhou.ui.theme.LocalAccent
 import noline.zhouzhou.ui.theme.LocalNoLine
 import java.time.Instant
@@ -55,6 +56,8 @@ private data class Draft(
 @Composable
 fun BillSheet(
     existing: BillRowUi?,
+    /** 从桌面小组件带进来的品名和分类；只有新增用得上，编辑以服务器那条为准。 */
+    preset: BillPrefill? = null,
     hints: List<TitleHint>,
     errors: List<PreflightError>,
     saving: Boolean,
@@ -78,7 +81,10 @@ fun BillSheet(
                     shop = it.shop,
                     note = it.note
                 )
-            } ?: Draft()
+            } ?: Draft(
+                title = preset?.title.orEmpty(),
+                kind = preset?.kind.orEmpty()
+            )
         )
     }
     var staged by remember { mutableStateOf(listOf<BillInput>()) }

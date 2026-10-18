@@ -40,6 +40,7 @@ import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.data.repository.BillPreflight
 import noline.zhouzhou.data.repository.billDelta
 import noline.zhouzhou.ui.components.NolineGuide
+import noline.zhouzhou.ui.navigation.BillPrefill
 import noline.zhouzhou.ui.theme.LocalAccent
 import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.theme.noLineCard
@@ -58,7 +59,10 @@ fun BillsScreen(
     appContainer: AppContainer,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenReport: (String) -> Unit
+    onOpenReport: (String) -> Unit,
+    /** 桌面小组件带进来的半张表单：非空就当场把记一笔面板拉开，品名和分类替用户填好。 */
+    initialAdd: BillPrefill? = null,
+    onPrefillConsumed: () -> Unit = {}
 ) {
     val viewModel = typechoViewModel<BillsViewModel>(appContainer) { BillsViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -66,8 +70,18 @@ fun BillsScreen(
 
     var editTarget by remember { mutableStateOf<BillRowUi?>(null) }
     var showNewSheet by remember { mutableStateOf(false) }
+    var preset by remember { mutableStateOf<BillPrefill?>(null) }
     var showBudgetSheet by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(initialAdd) {
+        if (initialAdd != null) {
+            preset = initialAdd
+            showNewSheet = true
+            // 立刻交还：连着点同一颗常记条目时，深链值没变，效果不会再跑第二次。
+            onPrefillConsumed()
+        }
+    }
 
     LaunchedEffect(state.toast) {
         state.toast?.let {
@@ -242,13 +256,18 @@ fun BillsScreen(
     if (showNewSheet) {
         BillSheet(
             existing = null,
+            preset = preset,
             hints = state.hints,
             errors = state.fieldErrors,
             saving = state.saving,
-            onDismiss = { showNewSheet = false },
+            onDismiss = {
+                showNewSheet = false
+                preset = null
+            },
             onSubmit = { inputs ->
                 if (viewModel.addBills(inputs)) {
                     showNewSheet = false
+                    preset = null
                     viewModel.consumeToast()
                 }
             },

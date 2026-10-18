@@ -21,7 +21,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
-import noline.zhouzhou.data.sync.StatusNotifier
 import noline.zhouzhou.ui.components.LocalNavAnimatedScope
 import noline.zhouzhou.ui.components.LocalSharedTransitionScope
 import noline.zhouzhou.ui.screens.admin.AdminScreen
@@ -145,19 +144,14 @@ fun TypechoNavHost(
         }
     }
 
-    // 通知点进来落在「数据与存储」，超支那句落在记账页。放在 loggedIn 解析之后，
-    // 是为了等图建好，否则 navigate 会打在一个还不存在的路由上。
+    // 通知点进来落在「数据与存储」，超支那句落在记账页，小组件那半张表单落在记账面板。
+    // 放在 loggedIn 解析之后，是为了等图建好，否则 navigate 会打在一个还不存在的路由上。
+    var billsPrefill by remember { mutableStateOf<BillPrefill?>(null) }
     LaunchedEffect(deepLink) {
-        val link = deepLink ?: return@LaunchedEffect
-        val target = when (link) {
-            StatusNotifier.DEEP_LINK -> Screen.Storage.route
-            StatusNotifier.DEEP_LINK_BILLS -> Screen.Bills.route
-            else -> null
-        }
-        if (target != null) {
-            navController.navigate(target) { launchSingleTop = true }
-            onDeepLinkShown()
-        }
+        val parsed = parseAppLink(deepLink) ?: return@LaunchedEffect
+        billsPrefill = parsed.prefill
+        navController.navigate(parsed.route) { launchSingleTop = true }
+        onDeepLinkShown()
     }
 
     Scaffold(
@@ -262,7 +256,9 @@ fun TypechoNavHost(
                         onOpenSettings = { switchTab(Screen.Settings.route) },
                         onOpenReport = { month ->
                             navController.navigate(Screen.BillReport.createRoute(month))
-                        }
+                        },
+                        initialAdd = billsPrefill,
+                        onPrefillConsumed = { billsPrefill = null }
                     )
                 }
 
