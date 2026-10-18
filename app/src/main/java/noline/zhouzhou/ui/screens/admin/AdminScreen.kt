@@ -23,10 +23,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.launch
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.data.model.Post
+import noline.zhouzhou.ui.components.GlassTopBar
 import noline.zhouzhou.ui.components.LoadMoreFooter
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.LocalNoLine
@@ -55,12 +58,13 @@ fun AdminScreen(
     val scope = rememberCoroutineScope()
 
     // 快滑到底就自动取下一页
+    // 卡片行/标题/空态也占 item，所以只在真有文章时才判定「滑到底」
     LaunchedEffect(listState, uiState.posts.size) {
         snapshotFlow {
             val info = listState.layoutInfo
             (info.visibleItemsInfo.lastOrNull()?.index ?: -1) to info.totalItemsCount
         }.collect { (lastVisible, total) ->
-            if (total > 1 && lastVisible >= total - 1) viewModel.loadMore()
+            if (uiState.posts.isNotEmpty() && lastVisible >= total - 1) viewModel.loadMore()
         }
     }
 
@@ -82,12 +86,12 @@ fun AdminScreen(
         )
     }
 
+    val haze = remember { HazeState() }
+    var barH by remember { mutableStateOf(0.dp) }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         containerColor = t.pageBg,
-        topBar = {
-            AdminHeader(loading = uiState.isLoading, onRefresh = { viewModel.loadPosts() })
-        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 modifier = Modifier.padding(bottom = tabBarInset),
@@ -98,128 +102,144 @@ fun AdminScreen(
                 text = { Text(stringResource(R.string.admin_new_post)) }
             )
         }
-    ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding)) {
-            LazyRow(
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) { _ ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().hazeSource(haze),
+                state = listState,
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = barH + 10.dp, bottom = 40.dp + tabBarInset),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item {
-                    ActionCard(
-                        icon = Icons.AutoMirrored.Filled.Article,
-                        label = stringResource(R.string.admin_posts),
-                        count = uiState.posts.size,
-                        onClick = { scope.launch { listState.animateScrollToItem(0) } }
-                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        item {
+                            ActionCard(
+                                icon = Icons.AutoMirrored.Filled.Article,
+                                label = stringResource(R.string.admin_posts),
+                                count = uiState.posts.size,
+                                onClick = { scope.launch { listState.animateScrollToItem(0) } }
+                            )
+                        }
+                        item {
+                            ActionCard(
+                                icon = Icons.Default.ChatBubble,
+                                label = stringResource(R.string.admin_comments),
+                                onClick = onViewComments
+                            )
+                        }
+                        item {
+                            ActionCard(
+                                icon = Icons.Default.Description,
+                                label = stringResource(R.string.admin_pages),
+                                onClick = onViewPages
+                            )
+                        }
+                        item {
+                            ActionCard(
+                                icon = Icons.Default.FolderOpen,
+                                label = stringResource(R.string.admin_categories),
+                                onClick = onViewCategories
+                            )
+                        }
+                        item {
+                            ActionCard(
+                                icon = Icons.Default.ContentCopy,
+                                label = stringResource(R.string.admin_duplicates),
+                                onClick = onViewDuplicates
+                            )
+                        }
+                        if (uiState.driveAvailable) {
+                            item {
+                                ActionCard(
+                                    icon = Icons.Default.Cloud,
+                                    label = stringResource(R.string.drive_title),
+                                    onClick = onViewDrive
+                                )
+                            }
+                        }
+                    }
                 }
+
                 item {
-                    ActionCard(
-                        icon = Icons.Default.ChatBubble,
-                        label = stringResource(R.string.admin_comments),
-                        onClick = onViewComments
+                    Text(
+                        if (uiState.canLoadMore) "全部文章" else "全部文章 · 共 ${uiState.posts.size} 篇",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = t.textSecondary,
+                        modifier = Modifier.padding(start = 2.dp)
                     )
                 }
-                item {
-                    ActionCard(
-                        icon = Icons.Default.Description,
-                        label = stringResource(R.string.admin_pages),
-                        onClick = onViewPages
-                    )
-                }
-                item {
-                    ActionCard(
-                        icon = Icons.Default.FolderOpen,
-                        label = stringResource(R.string.admin_categories),
-                        onClick = onViewCategories
-                    )
-                }
-                item {
-                    ActionCard(
-                        icon = Icons.Default.ContentCopy,
-                        label = stringResource(R.string.admin_duplicates),
-                        onClick = onViewDuplicates
-                    )
-                }
-                if (uiState.driveAvailable) {
-                    item {
-                        ActionCard(
-                            icon = Icons.Default.Cloud,
-                            label = stringResource(R.string.drive_title),
-                            onClick = onViewDrive
-                        )
+
+                when {
+                    uiState.isLoading && uiState.posts.isEmpty() -> {
+                        item {
+                            Column { repeat(5) { RowSkeleton() } }
+                        }
+                    }
+                    uiState.error != null && uiState.posts.isEmpty() -> {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 22.dp, bottom = 32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(uiState.error ?: "读不到文章", fontSize = 13.sp, color = t.textSecondary)
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "重新加载",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = t.onBrand,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(t.accent)
+                                        .clickable { viewModel.loadPosts() }
+                                        .padding(horizontal = 16.dp, vertical = 7.dp)
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        items(uiState.posts, key = { it.postId }) { post ->
+                            AdminPostItem(
+                                post = post,
+                                onClick = { onPostClick(post.postId) },
+                                onEdit = { onEditPost(post.postId) },
+                                onDelete = { postToDelete = post }
+                            )
+                        }
+                        item(key = "footer") {
+                            if (uiState.moreError != null) {
+                                Text(
+                                    "${uiState.moreError} · 点这里重试",
+                                    fontSize = 12.5.sp,
+                                    color = t.textLight,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(CircleShape)
+                                        .clickable { viewModel.loadMore() }
+                                        .padding(vertical = 14.dp),
+                                    textAlign = TextAlign.Center
+                                )
+                            } else {
+                                LoadMoreFooter(
+                                    loading = uiState.isLoadingMore,
+                                    canLoadMore = uiState.canLoadMore,
+                                    loadedCount = uiState.posts.size
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            Text(
-                if (uiState.canLoadMore) "全部文章" else "全部文章 · 共 ${uiState.posts.size} 篇",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = t.textSecondary,
-                modifier = Modifier.padding(start = 18.dp, top = 10.dp, bottom = 2.dp)
-            )
-
-            when {
-                uiState.isLoading && uiState.posts.isEmpty() -> {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        repeat(5) { RowSkeleton() }
-                    }
-                }
-                uiState.error != null && uiState.posts.isEmpty() -> {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(uiState.error ?: "读不到文章", fontSize = 13.sp, color = t.textSecondary)
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            "重新加载",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = t.onBrand,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(t.accent)
-                                .clickable { viewModel.loadPosts() }
-                                .padding(horizontal = 16.dp, vertical = 7.dp)
-                        )
-                    }
-                }
-                else -> LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 40.dp + tabBarInset),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(uiState.posts, key = { it.postId }) { post ->
-                        AdminPostItem(
-                            post = post,
-                            onClick = { onPostClick(post.postId) },
-                            onEdit = { onEditPost(post.postId) },
-                            onDelete = { postToDelete = post }
-                        )
-                    }
-                    item(key = "footer") {
-                        if (uiState.moreError != null) {
-                            Text(
-                                "${uiState.moreError} · 点这里重试",
-                                fontSize = 12.5.sp,
-                                color = t.textLight,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(CircleShape)
-                                    .clickable { viewModel.loadMore() }
-                                    .padding(vertical = 14.dp),
-                                textAlign = TextAlign.Center
-                            )
-                        } else {
-                            LoadMoreFooter(
-                                loading = uiState.isLoadingMore,
-                                canLoadMore = uiState.canLoadMore,
-                                loadedCount = uiState.posts.size
-                            )
-                        }
-                    }
-                }
+            GlassTopBar(
+                haze = haze,
+                onBarHeight = { barH = it },
+                modifier = Modifier.align(Alignment.TopCenter)
+            ) {
+                AdminHeader(loading = uiState.isLoading, onRefresh = { viewModel.loadPosts() })
             }
         }
     }
@@ -228,38 +248,31 @@ fun AdminScreen(
 @Composable
 private fun AdminHeader(loading: Boolean, onRefresh: () -> Unit) {
     val t = LocalNoLine.current
-    // 站点没有实心标题栏：标题直接坐在页面底色上，靠一条发丝线和内容分开。
-    Column(modifier = Modifier.background(t.pageBg)) {
-        Spacer(Modifier.statusBarsPadding().height(0.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                stringResource(R.string.admin_title),
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
-                color = t.textStrong
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.admin_title),
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold,
+            color = t.textStrong
+        )
+        Spacer(Modifier.weight(1f))
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(17.dp),
+                strokeWidth = 2.dp,
+                color = t.accent
             )
-            Spacer(Modifier.weight(1f))
-            if (loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(17.dp),
-                    strokeWidth = 2.dp,
-                    color = t.accent
+        } else {
+            IconButton(onClick = onRefresh, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    Icons.Default.Sync,
+                    contentDescription = "刷新",
+                    modifier = Modifier.size(19.dp),
+                    tint = t.textSecondary
                 )
-            } else {
-                IconButton(onClick = onRefresh, modifier = Modifier.size(34.dp)) {
-                    Icon(
-                        Icons.Default.Sync,
-                        contentDescription = "刷新",
-                        modifier = Modifier.size(19.dp),
-                        tint = t.textSecondary
-                    )
-                }
             }
         }
     }

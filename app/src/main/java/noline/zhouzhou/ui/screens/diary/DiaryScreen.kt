@@ -20,9 +20,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.R
+import noline.zhouzhou.ui.components.GlassTopBar
 import noline.zhouzhou.ui.components.NotePostCard
 import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.typechoViewModel
@@ -39,25 +42,21 @@ fun DiaryScreen(
     val t = LocalNoLine.current
     val tabBarInset = rememberTabBarInset()
 
-    Scaffold(
-        containerColor = t.pageBg,
-        topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(t.pageBg)
-                    .statusBarsPadding()
-                    .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp)
-            ) {
-                Text("日记动态", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
-                if (uiState.totalCount > 0) {
-                    Spacer(Modifier.height(2.dp))
-                    Text("${uiState.totalCount} 篇日常碎片", fontSize = 12.sp, color = t.textLight)
-                }
-            }
-        }
-    ) { innerPadding ->
-        Box(modifier = Modifier.padding(innerPadding)) {
+    // 头部是盖在内容上的玻璃胶囊，列表铺满整屏、从它底下穿过去（同首页）
+    val haze = remember { HazeState() }
+    var barH by remember { mutableStateOf(0.dp) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(t.pageBg)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(haze)
+                .padding(top = barH)
+        ) {
             when {
                 uiState.isLoading && uiState.days.isEmpty() -> CenterLoader("正在翻开日记本…")
 
@@ -86,6 +85,18 @@ fun DiaryScreen(
                         }
                     }
                 }
+            }
+        }
+
+        GlassTopBar(
+            haze = haze,
+            onBarHeight = { barH = it },
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Text("日记动态", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+            if (uiState.totalCount > 0) {
+                Spacer(Modifier.height(2.dp))
+                Text("${uiState.totalCount} 篇日常碎片", fontSize = 12.sp, color = t.textLight)
             }
         }
     }

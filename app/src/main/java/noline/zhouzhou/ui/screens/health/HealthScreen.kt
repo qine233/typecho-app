@@ -29,11 +29,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.model.ChangeInfo
 import noline.zhouzhou.data.model.HealthOverview
 import noline.zhouzhou.data.model.HealthRecord
 import noline.zhouzhou.data.remote.NolineIssue
+import noline.zhouzhou.ui.components.GlassTopBar
 import noline.zhouzhou.ui.components.NolineGuide
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.LocalAccent
@@ -64,18 +67,12 @@ fun HealthScreen(
         }
     }
 
+    val haze = remember { HazeState() }
+    var barH by remember { mutableStateOf(0.dp) }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            HealthHeader(
-                loading = state.loading,
-                pendingCount = state.pendingCount,
-                onOpenBills = onOpenBills,
-                onRefresh = { viewModel.refresh() },
-                onSync = { viewModel.syncNow() }
-            )
-        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 modifier = Modifier.padding(bottom = tabBarInset),
@@ -86,74 +83,87 @@ fun HealthScreen(
                 text = { Text("记一笔") }
             )
         }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 40.dp + tabBarInset)
-        ) {
-            if (state.showSetupGuide) {
-                SetupGuide(issue = state.issue, hint = state.issueHint, onOpenSettings = onOpenSettings)
-            } else {
-                // 有旧数据就别把页面变成错误页，但也不能装作一切正常：顶部压一条横条。
-                if (state.issue != null && state.overview != null) {
-                    IssueStrip(issue = state.issue, hint = state.issueHint, onOpenSettings = onOpenSettings)
-                    Spacer(Modifier.height(4.dp))
-                }
-                val overview = state.overview
-                if (overview == null) {
-                    HealthSkeleton()
-                } else if (overview.count == 0) {
-                    NoRecordYet()
+    ) { _ ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .hazeSource(haze)
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = barH + 10.dp, bottom = 40.dp + tabBarInset)
+            ) {
+                if (state.showSetupGuide) {
+                    SetupGuide(issue = state.issue, hint = state.issueHint, onOpenSettings = onOpenSettings)
                 } else {
-                    WeightHeroCard(overview.latest, overview.profile)
-                    Spacer(Modifier.height(14.dp))
-                    GoalCard(overview)
-                    Spacer(Modifier.height(12.dp))
-                    ChangeChips(overview)
-                    Spacer(Modifier.height(16.dp))
-                    ChartCard(overview.series)
-                    overview.stats?.let {
+                    // 有旧数据就别把页面变成错误页，但也不能装作一切正常：顶部压一条横条。
+                    if (state.issue != null && state.overview != null) {
+                        IssueStrip(issue = state.issue, hint = state.issueHint, onOpenSettings = onOpenSettings)
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    val overview = state.overview
+                    if (overview == null) {
+                        HealthSkeleton()
+                    } else if (overview.count == 0) {
+                        NoRecordYet()
+                    } else {
+                        WeightHeroCard(overview.latest, overview.profile)
+                        Spacer(Modifier.height(14.dp))
+                        GoalCard(overview)
                         Spacer(Modifier.height(12.dp))
-                        StatsRow(it.min, it.max, it.avg, overview.first, overview.last)
+                        ChangeChips(overview)
+                        Spacer(Modifier.height(16.dp))
+                        ChartCard(overview.series)
+                        overview.stats?.let {
+                            Spacer(Modifier.height(12.dp))
+                            StatsRow(it.min, it.max, it.avg, overview.first, overview.last)
+                        }
                     }
-                }
 
-                AnimatedVisibility(visible = state.invalidDates.isNotEmpty()) {
-                    val dates = state.invalidDates.filter { it.isNotBlank() }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.errorContainer)
-                            .padding(12.dp)
-                    ) {
+                    AnimatedVisibility(visible = state.invalidDates.isNotEmpty()) {
+                        val dates = state.invalidDates.filter { it.isNotBlank() }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.errorContainer)
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                if (dates.isEmpty()) "有一条记录的日期不被接受"
+                                else "这些日期被服务器退回：${dates.joinToString("、")}",
+                                fontSize = 12.5.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+
+                    if (overview != null && overview.count > 0) {
+                        Spacer(Modifier.height(18.dp))
                         Text(
-                            if (dates.isEmpty()) "有一条记录的日期不被接受"
-                            else "这些日期被服务器退回：${dates.joinToString("、")}",
-                            fontSize = 12.5.sp,
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            "全部记录",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 16.dp)
                         )
+                        Spacer(Modifier.height(6.dp))
+                        state.records.forEach { record ->
+                            RecordRow(record = record, onClick = { sheetFor = record })
+                        }
                     }
                 }
+            }
 
-                if (overview != null && overview.count > 0) {
-                    Spacer(Modifier.height(18.dp))
-                    Text(
-                        "全部记录",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    state.records.forEach { record ->
-                        RecordRow(record = record, onClick = { sheetFor = record })
-                    }
-                }
+            GlassTopBar(haze = haze, onBarHeight = { barH = it },
+                modifier = Modifier.align(Alignment.TopCenter)) {
+                HealthHeader(
+                    loading = state.loading,
+                    pendingCount = state.pendingCount,
+                    onOpenBills = onOpenBills,
+                    onRefresh = { viewModel.refresh() },
+                    onSync = { viewModel.syncNow() }
+                )
             }
         }
     }
@@ -208,62 +218,55 @@ private fun HealthHeader(
     onSync: () -> Unit
 ) {
     val t = LocalNoLine.current
-    Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-        Spacer(Modifier.statusBarsPadding().height(0.dp))
-        Row(
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "健康记录",
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.width(8.dp))
+        // 记账和健康共用一把密钥、一个写入开关，所以入口挂在这里，不再占一个底部标签。
+        Text(
+            "买菜记账",
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Medium,
+            color = t.accent,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+                .clip(RoundedCornerShape(999.dp))
+                .background(t.accentBg)
+                .clickable(onClick = onOpenBills)
+                .padding(horizontal = 11.dp, vertical = 5.dp)
+        )
+        Spacer(Modifier.weight(1f))
+        if (pendingCount > 0) {
             Text(
-                "健康记录",
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(Modifier.width(8.dp))
-            // 记账和健康共用一把密钥、一个写入开关，所以入口挂在这里，不再占一个底部标签。
-            Text(
-                "买菜记账",
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = t.accent,
+                "$pendingCount 条待同步",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.error,
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    .background(t.accentBg)
-                    .clickable(onClick = onOpenBills)
-                    .padding(horizontal = 11.dp, vertical = 5.dp)
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .clickable(onClick = onSync)
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
             )
-            Spacer(Modifier.weight(1f))
-            if (pendingCount > 0) {
-                Text(
-                    "$pendingCount 条待同步",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(MaterialTheme.colorScheme.errorContainer)
-                        .clickable(onClick = onSync)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+            Spacer(Modifier.width(8.dp))
+        }
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(17.dp), strokeWidth = 2.dp)
+        } else {
+            IconButton(onClick = onRefresh, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    Icons.Default.Sync,
+                    contentDescription = "刷新",
+                    modifier = Modifier.size(19.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.width(8.dp))
-            }
-            if (loading) {
-                CircularProgressIndicator(modifier = Modifier.size(17.dp), strokeWidth = 2.dp)
-            } else {
-                IconButton(onClick = onRefresh, modifier = Modifier.size(34.dp)) {
-                    Icon(
-                        Icons.Default.Sync,
-                        contentDescription = "刷新",
-                        modifier = Modifier.size(19.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
-        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 

@@ -20,10 +20,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.R
 import noline.zhouzhou.ui.components.CategoryFilterRow
+import noline.zhouzhou.ui.components.GlassTopBar
 import noline.zhouzhou.ui.components.LoadMoreFooter
 import noline.zhouzhou.ui.components.SearchPill
 import noline.zhouzhou.ui.components.WaterfallPostCard
@@ -58,99 +61,116 @@ fun HomeScreen(
         }
     }
 
-    Column(
+    // 头部现在是盖在内容上的玻璃胶囊，所以列表要铺满整屏、再从胶囊底下穿过去；
+    // 顶部让出多少由头部实测出来，标题行和分类条有一行没一行是常事。
+    val haze = remember { HazeState() }
+    var barH by remember { mutableStateOf(0.dp) }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 14.dp, end = 14.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .hazeSource(haze)
         ) {
-            Text(
-                text = uiState.blogName.ifBlank { stringResource(R.string.app_name) },
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
-            )
-            Spacer(Modifier.width(12.dp))
-            SearchPill(
-                placeholder = stringResource(R.string.search_hint),
-                onClick = onSearchClick,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        CategoryFilterRow(
-            categories = uiState.categories,
-            selected = uiState.selectedCategory,
-            onSelect = viewModel::selectCategory
-        )
-        Spacer(Modifier.height(if (uiState.categories.isEmpty()) 2.dp else 8.dp))
+            when {
+                uiState.isLoading && uiState.posts.isEmpty() -> {
+                    WaterfallSkeleton(Modifier.fillMaxSize().padding(top = barH + 12.dp))
+                }
 
-        when {
-            uiState.isLoading && uiState.posts.isEmpty() -> {
-                WaterfallSkeleton(Modifier.fillMaxSize().padding(top = 4.dp))
-            }
+                uiState.error != null && uiState.posts.isEmpty() -> {
+                    Column(Modifier.fillMaxSize().padding(top = barH)) {
+                        ErrorState(
+                            message = uiState.error ?: stringResource(R.string.posts_error),
+                            onRetry = viewModel::loadPosts
+                        )
+                    }
+                }
 
-            uiState.error != null && uiState.posts.isEmpty() -> {
-                ErrorState(
-                    message = uiState.error ?: stringResource(R.string.posts_error),
-                    onRetry = viewModel::loadPosts
-                )
-            }
+                uiState.posts.isEmpty() -> EmptyState()
 
-            uiState.posts.isEmpty() -> EmptyState()
-
-            else -> PullToRefreshBox(
-                isRefreshing = uiState.isRefreshing,
-                onRefresh = viewModel::refresh,
-                modifier = Modifier.fillMaxSize()
-            ) {
-                if (uiState.filteredPosts.isEmpty()) {
-                    NoResultState(category = uiState.selectedCategory)
-                } else {
-                    LazyVerticalStaggeredGrid(
-                        state = gridState,
-                        columns = StaggeredGridCells.Fixed(2),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 18.dp + tabBarInset),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalItemSpacing = 10.dp
-                    ) {
-                        itemsIndexed(
-                            items = uiState.filteredPosts,
-                            key = { _, post -> post.postId }
-                        ) { index, post ->
-                            XhsEntrance(index = index, modifier = Modifier.fillMaxWidth()) {
-                                WaterfallPostCard(
-                                    post = post,
-                                    onClick = { onPostClick(post.postId) }
+                else -> PullToRefreshBox(
+                    isRefreshing = uiState.isRefreshing,
+                    onRefresh = viewModel::refresh,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (uiState.filteredPosts.isEmpty()) {
+                        NoResultState(
+                            category = uiState.selectedCategory,
+                            modifier = Modifier.padding(top = barH)
+                        )
+                    } else {
+                        LazyVerticalStaggeredGrid(
+                            state = gridState,
+                            columns = StaggeredGridCells.Fixed(2),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = barH + 8.dp, bottom = 18.dp + tabBarInset),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalItemSpacing = 10.dp
+                        ) {
+                            itemsIndexed(
+                                items = uiState.filteredPosts,
+                                key = { _, post -> post.postId }
+                            ) { index, post ->
+                                XhsEntrance(index = index, modifier = Modifier.fillMaxWidth()) {
+                                    WaterfallPostCard(
+                                        post = post,
+                                        onClick = { onPostClick(post.postId) }
+                                    )
+                                }
+                            }
+                            item(span = StaggeredGridItemSpan.FullLine) {
+                                LoadMoreFooter(
+                                    loading = uiState.isLoadingMore,
+                                    canLoadMore = uiState.canLoadMore,
+                                    loadedCount = uiState.posts.size
                                 )
                             }
                         }
-                        item(span = StaggeredGridItemSpan.FullLine) {
-                            LoadMoreFooter(
-                                loading = uiState.isLoadingMore,
-                                canLoadMore = uiState.canLoadMore,
-                                loadedCount = uiState.posts.size
-                            )
-                        }
                     }
                 }
+            }
+        }
+
+        GlassTopBar(
+            haze = haze,
+            onBarHeight = { barH = it },
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = uiState.blogName.ifBlank { stringResource(R.string.app_name) },
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                Spacer(Modifier.width(12.dp))
+                SearchPill(
+                    placeholder = stringResource(R.string.search_hint),
+                    onClick = onSearchClick,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            if (uiState.categories.isNotEmpty()) {
+                Spacer(Modifier.height(9.dp))
+                CategoryFilterRow(
+                    categories = uiState.categories,
+                    selected = uiState.selectedCategory,
+                    onSelect = viewModel::selectCategory
+                )
             }
         }
     }
 }
 
 @Composable
-private fun NoResultState(category: String?) {
+private fun NoResultState(category: String?, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(top = 64.dp),
+        modifier = modifier.fillMaxSize().padding(top = 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(

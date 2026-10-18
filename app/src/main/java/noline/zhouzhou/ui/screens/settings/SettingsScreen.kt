@@ -29,6 +29,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.BuildConfig
 import noline.zhouzhou.R
@@ -37,6 +39,7 @@ import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.data.repository.NolineReport
 import noline.zhouzhou.data.repository.StorageRepository
 import noline.zhouzhou.data.repository.StorageUsage
+import noline.zhouzhou.ui.components.GlassTopBar
 import noline.zhouzhou.ui.components.NolineGuide
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.NoLineChip
@@ -115,270 +118,288 @@ fun SettingsScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
-            )
-        }
-    ) { innerPadding ->
+    val haze = remember { HazeState() }
+    var barH by remember { mutableStateOf(0.dp) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                // 底部不再交给 Scaffold 的导航栏内边距，改由玻璃胶囊那一条统一让位
-                .padding(top = innerPadding.calculateTopPadding())
+                .hazeSource(haze)
                 .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + tabBarInset)
+                // 顶栏是浮在上面的玻璃，所以首屏内容自己让位；底部让给玻璃胶囊
+                .padding(start = 16.dp, end = 16.dp, top = barH + 14.dp, bottom = 16.dp + tabBarInset)
         ) {
-            // Site info card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-            ) {
-                Row(
-                    modifier = Modifier.padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Site info card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
-                    Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(48.dp)
+                    Row(
+                        modifier = Modifier.padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.AutoStories, contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(24.dp))
+                        Surface(
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.AutoStories, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(24.dp))
+                            }
                         }
-                    }
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            text = uiState.blogName.ifBlank { stringResource(R.string.app_name) },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = uiState.siteUrl,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        )
-                        if (uiState.username.isNotBlank()) {
+                        Spacer(Modifier.width(16.dp))
+                        Column {
                             Text(
-                                text = "登录为: ${uiState.username}" +
-                                    if (uiState.isAdmin) " (管理员)" else "",
+                                text = uiState.blogName.ifBlank { stringResource(R.string.app_name) },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = uiState.siteUrl,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                            )
+                            if (uiState.username.isNotBlank()) {
+                                Text(
+                                    text = "登录为: ${uiState.username}" +
+                                        if (uiState.isAdmin) " (管理员)" else "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // Appearance section
+                SettingsSectionHeader(stringResource(R.string.settings_appearance))
+
+                // Dark mode
+                SettingsItem(
+                    icon = Icons.Default.DarkMode,
+                    title = stringResource(R.string.settings_dark_mode),
+                    subtitle = when (uiState.darkMode) {
+                        "light" -> stringResource(R.string.settings_dark_mode_light)
+                        "dark" -> stringResource(R.string.settings_dark_mode_dark)
+                        else -> stringResource(R.string.settings_dark_mode_system)
+                    }
+                ) {
+                    DarkModeSelector(
+                        current = uiState.darkMode,
+                        onSelect = viewModel::setDarkMode
+                    )
+                }
+
+                // Font scale
+                SettingsItem(
+                    icon = Icons.Default.TextFields,
+                    title = stringResource(R.string.settings_font_size),
+                    subtitle = "${(uiState.fontScale * 100).toInt()}%"
+                ) {
+                    Column {
+                        Slider(
+                            value = uiState.fontScale,
+                            onValueChange = viewModel::setFontScale,
+                            valueRange = 0.8f..1.4f,
+                            steps = 5
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("小", style = MaterialTheme.typography.labelSmall)
+                            Text("标准", style = MaterialTheme.typography.labelSmall)
+                            Text("大", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(16.dp))
+
+                // Site section
+                SettingsSectionHeader(stringResource(R.string.settings_site_info))
+
+                SettingsActionItem(
+                    icon = Icons.Default.NetworkCheck,
+                    title = stringResource(R.string.settings_test_connection),
+                    onClick = viewModel::testConnection
+                )
+
+                AnimatedVisibility(visible = uiState.testConnectionResult != null) {
+                    val ok = uiState.testConnectionResult == true
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (ok) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.errorContainer
+                        )
+                    ) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (ok) Icons.Default.CheckCircle else Icons.Default.Error,
+                                contentDescription = null,
+                                tint = if (ok) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = if (ok) stringResource(R.string.settings_connection_ok)
+                                else stringResource(R.string.settings_connection_fail),
+                                color = if (ok) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onErrorContainer
                             )
                         }
                     }
                 }
-            }
 
-            Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(16.dp))
 
-            // Appearance section
-            SettingsSectionHeader(stringResource(R.string.settings_appearance))
+                // NoLine health API section
+                SettingsSectionHeader("健康记录接口")
+                NolineSection(uiState, viewModel)
 
-            // Dark mode
-            SettingsItem(
-                icon = Icons.Default.DarkMode,
-                title = stringResource(R.string.settings_dark_mode),
-                subtitle = when (uiState.darkMode) {
-                    "light" -> stringResource(R.string.settings_dark_mode_light)
-                    "dark" -> stringResource(R.string.settings_dark_mode_dark)
-                    else -> stringResource(R.string.settings_dark_mode_system)
-                }
-            ) {
-                DarkModeSelector(
-                    current = uiState.darkMode,
-                    onSelect = viewModel::setDarkMode
-                )
-            }
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(16.dp))
 
-            // Font scale
-            SettingsItem(
-                icon = Icons.Default.TextFields,
-                title = stringResource(R.string.settings_font_size),
-                subtitle = "${(uiState.fontScale * 100).toInt()}%"
-            ) {
-                Column {
-                    Slider(
-                        value = uiState.fontScale,
-                        onValueChange = viewModel::setFontScale,
-                        valueRange = 0.8f..1.4f,
-                        steps = 5
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("小", style = MaterialTheme.typography.labelSmall)
-                        Text("标准", style = MaterialTheme.typography.labelSmall)
-                        Text("大", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
+                // Cloudreve image host
+                SettingsSectionHeader("图片上传图床")
+                CloudreveSection(uiState, viewModel)
 
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(16.dp))
 
-            // Site section
-            SettingsSectionHeader(stringResource(R.string.settings_site_info))
-
-            SettingsActionItem(
-                icon = Icons.Default.NetworkCheck,
-                title = stringResource(R.string.settings_test_connection),
-                onClick = viewModel::testConnection
-            )
-
-            AnimatedVisibility(visible = uiState.testConnectionResult != null) {
-                val ok = uiState.testConnectionResult == true
+                SettingsSectionHeader("数据与存储")
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (ok) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.errorContainer
-                    )
+                    onClick = onOpenStorage,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
-                            if (ok) Icons.Default.CheckCircle else Icons.Default.Error,
-                            contentDescription = null,
-                            tint = if (ok) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onErrorContainer
+                            Icons.Default.Storage, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)
                         )
                         Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("占用存储", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                storage?.let {
+                                    "安装包 ${formatBytes(it.bytesOf(StorageRepository.KEY_APK))}" +
+                                            " · 缓存 ${formatBytes(it.bytesOf(StorageRepository.CACHE_KEYS))}" +
+                                            " · 数据 ${formatBytes(it.bytesOf(StorageRepository.KEY_DRAFTS, StorageRepository.KEY_QUEUE, StorageRepository.KEY_DATA_OTHER))}"
+                                } ?: "正在统计…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Text(
-                            text = if (ok) stringResource(R.string.settings_connection_ok)
-                            else stringResource(R.string.settings_connection_fail),
-                            color = if (ok) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onErrorContainer
+                            storage?.let { formatBytes(it.totalBytes) } ?: "",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
                         )
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(20.dp))
                     }
                 }
-            }
 
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(16.dp))
 
-            // NoLine health API section
-            SettingsSectionHeader("健康记录接口")
-            NolineSection(uiState, viewModel)
-
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            // Cloudreve image host
-            SettingsSectionHeader("图片上传图床")
-            CloudreveSection(uiState, viewModel)
-
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            SettingsSectionHeader("数据与存储")
-            Card(
-                onClick = onOpenStorage,
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Storage, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("占用存储", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            storage?.let {
-                                "安装包 ${formatBytes(it.bytesOf(StorageRepository.KEY_APK))}" +
-                                        " · 缓存 ${formatBytes(it.bytesOf(StorageRepository.CACHE_KEYS))}" +
-                                        " · 数据 ${formatBytes(it.bytesOf(StorageRepository.KEY_DRAFTS, StorageRepository.KEY_QUEUE, StorageRepository.KEY_DATA_OTHER))}"
-                            } ?: "正在统计…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                SettingsSectionHeader("后台与通知")
+                SettingsSwitchItem(
+                    icon = Icons.Default.Notifications,
+                    title = "常驻状态通知",
+                    subtitle = "在通知栏长期挂着还有多少条没交到站点，点开直达「数据与存储」",
+                    checked = persistentStatus,
+                    onCheckedChange = { on ->
+                        if (on) turnOnStatus() else scope.launch { appContainer.statusRepository.setEnabled(false) }
                     }
+                )
+                SettingsSwitchItem(
+                    icon = Icons.Default.Sync,
+                    title = "后台自动补交",
+                    subtitle = "约每 15 分钟查一次本机队列，有网就交上去；关掉之后只在打开 App 时补交",
+                    checked = autoSync,
+                    enabled = persistentStatus,
+                    onCheckedChange = { on -> scope.launch { appContainer.statusRepository.setAutoSync(on) } }
+                )
+                if (persistentStatus) {
                     Text(
-                        storage?.let { formatBytes(it.totalBytes) } ?: "",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
+                        "系统会把后台任务合并到省电窗口里，所以这条通知说的从来不是「刚刚」，而是「上一次查过」。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 2.dp, top = 2.dp)
                     )
-                    Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(20.dp))
                 }
+
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(16.dp))
+
+                // About section
+                SettingsSectionHeader(stringResource(R.string.settings_about))
+
+                SettingsInfoItem(
+                    icon = Icons.Default.Info,
+                    title = stringResource(R.string.settings_version),
+                    value = BuildConfig.VERSION_NAME + if (BuildConfig.DEBUG) " · debug" else ""
+                )
+
+                UpdateCard(state = uiState.update, mirrorId = uiState.updateMirrorId, viewModel = viewModel)
+
+                Spacer(Modifier.height(24.dp))
+
+                // Logout button
+                OutlinedButton(
+                    onClick = { viewModel.showLogoutDialog(true) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.logout))
+                }
+
+                Spacer(Modifier.height(32.dp))
             }
 
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            SettingsSectionHeader("后台与通知")
-            SettingsSwitchItem(
-                icon = Icons.Default.Notifications,
-                title = "常驻状态通知",
-                subtitle = "在通知栏长期挂着还有多少条没交到站点，点开直达「数据与存储」",
-                checked = persistentStatus,
-                onCheckedChange = { on ->
-                    if (on) turnOnStatus() else scope.launch { appContainer.statusRepository.setEnabled(false) }
-                }
-            )
-            SettingsSwitchItem(
-                icon = Icons.Default.Sync,
-                title = "后台自动补交",
-                subtitle = "约每 15 分钟查一次本机队列，有网就交上去；关掉之后只在打开 App 时补交",
-                checked = autoSync,
-                enabled = persistentStatus,
-                onCheckedChange = { on -> scope.launch { appContainer.statusRepository.setAutoSync(on) } }
-            )
-            if (persistentStatus) {
+        GlassTopBar(
+            haze = haze,
+            onBarHeight = { barH = it },
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    "系统会把后台任务合并到省电窗口里，所以这条通知说的从来不是「刚刚」，而是「上一次查过」。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                    stringResource(R.string.settings_title),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
-
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            // About section
-            SettingsSectionHeader(stringResource(R.string.settings_about))
-
-            SettingsInfoItem(
-                icon = Icons.Default.Info,
-                title = stringResource(R.string.settings_version),
-                value = BuildConfig.VERSION_NAME + if (BuildConfig.DEBUG) " · debug" else ""
-            )
-
-            UpdateCard(state = uiState.update, mirrorId = uiState.updateMirrorId, viewModel = viewModel)
-
-            Spacer(Modifier.height(24.dp))
-
-            // Logout button
-            OutlinedButton(
-                onClick = { viewModel.showLogoutDialog(true) },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                shape = MaterialTheme.shapes.medium
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.logout))
-            }
-
-            Spacer(Modifier.height(32.dp))
         }
     }
 }

@@ -5,7 +5,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -23,7 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -32,8 +30,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
+import noline.zhouzhou.ui.components.GlassBarSideGap
+import noline.zhouzhou.ui.components.noLineGlass
 import noline.zhouzhou.ui.theme.LocalNoLine
 
 /** 自绘的底栏条目，替代 Material NavigationBar 的 pill + tone 容器造型。 */
@@ -47,7 +45,7 @@ data class TabSpec(
 )
 
 /**
- * 底部导航：一颗真的悬浮胶囊。
+ * 底部导航：一颗真的悬浮胶囊，材质和顶栏是同一块（见 [noLineGlass]）。
  *
  * 「液态玻璃」靠 Haze 把底下的页面录成一层画面、再在这颗胶囊上做高斯模糊（Android 12+
  * 走 RenderEffect，12 以下拿不到模糊，就退化成 tint 更实的毛玻璃色块，形态不变）。
@@ -63,44 +61,15 @@ fun TypechoTabBar(
     onCreateClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val t = LocalNoLine.current
-    val shape = CircleShape
-
     Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = GlassBarSideGap)
             .padding(top = 4.dp, bottom = TabBarLift)
-            .shadow(
-                14.dp, shape, clip = false,
-                ambientColor = Color(0x1F2C2D30), spotColor = Color(0x402C2D30)
-            )
-            .clip(shape)
-            .hazeEffect(hazeState) {
-                // 模糊半径给足，底下的东西化成色块而不是残影，才敢把 tint 压到这么薄
-                blurRadius = 46.dp
-                tints = listOf(HazeTint(t.glassBg.copy(alpha = 0.42f)))
-                backgroundColor = Color.Transparent
-                noiseFactor = 0.035f
-                // 拿不到模糊时（Android 12 以下）只能靠这层实底撑住，别让内容糊在字上
-                fallbackTint = HazeTint(t.glassBg)
-            }
-            .border(1.dp, t.cardBorder, shape)
+            .noLineGlass(hazeState, CircleShape)
             .height(TabBarHeight)
     ) {
-        // 上缘那道反光：只在最上面薄薄一条，铺宽了就成了第二层蒙版，玻璃立刻就不透了
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to t.cardBg.copy(alpha = 0.26f),
-                        0.22f to t.cardBg.copy(alpha = 0.05f),
-                        0.4f to Color.Transparent
-                    )
-                )
-        )
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
