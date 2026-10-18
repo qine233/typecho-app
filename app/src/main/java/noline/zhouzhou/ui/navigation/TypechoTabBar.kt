@@ -78,8 +78,9 @@ fun TypechoTabBar(
             )
             .clip(shape)
             .hazeEffect(hazeState) {
-                blurRadius = 26.dp
-                tints = listOf(HazeTint(t.glassBg))
+                // 模糊半径给足，底下的东西化成色块而不是残影，才敢把 tint 压到这么薄
+                blurRadius = 46.dp
+                tints = listOf(HazeTint(t.glassBg.copy(alpha = 0.42f)))
                 backgroundColor = Color.Transparent
                 noiseFactor = 0.035f
                 // 拿不到模糊时（Android 12 以下）只能靠这层实底撑住，别让内容糊在字上
@@ -88,15 +89,15 @@ fun TypechoTabBar(
             .border(1.dp, t.cardBorder, shape)
             .height(TabBarHeight)
     ) {
-        // 上缘那道反光：玻璃胶囊被光照到的那条边，暗色下用卡片色提亮，别用死白
+        // 上缘那道反光：只在最上面薄薄一条，铺宽了就成了第二层蒙版，玻璃立刻就不透了
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to t.cardBg.copy(alpha = 0.55f),
-                        0.45f to t.cardBg.copy(alpha = 0.10f),
-                        0.72f to Color.Transparent
+                        0f to t.cardBg.copy(alpha = 0.26f),
+                        0.22f to t.cardBg.copy(alpha = 0.05f),
+                        0.4f to Color.Transparent
                     )
                 )
         )
