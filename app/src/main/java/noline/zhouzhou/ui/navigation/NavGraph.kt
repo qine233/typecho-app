@@ -82,7 +82,7 @@ sealed class Screen(val route: String) {
     data object Duplicates : Screen("admin/duplicates")
     data object Drive : Screen("cloudreve/drive")
     data object Shares : Screen("cloudreve/shares")
-    /** 宝塔面板那一页从设置里进：它管的是服务器，不是站点内容，不该占底部标签。 */
+    /** 宝塔面板管的是服务器，不是站点内容；管理员的标签少一个，这一格补在末位。 */
     data object BtPanel : Screen("settings/btpanel")
 }
 
@@ -104,6 +104,9 @@ private val HealthTab = TabSpec(
 )
 private val SettingsTab = TabSpec(
     Screen.Settings.route, "设置", Icons.Outlined.Settings, Icons.Filled.Settings
+)
+private val BtPanelTab = TabSpec(
+    Screen.BtPanel.route, "宝塔", Icons.Outlined.Dns, Icons.Filled.Dns
 )
 
 @OptIn(
@@ -134,12 +137,13 @@ fun TypechoNavHost(
 
     val showBottomBar = currentRoute in listOf(
         Screen.Home.route, Screen.Diary.route, Screen.Health.route,
-        Screen.Admin.route, Screen.Settings.route
+        Screen.Admin.route, Screen.Settings.route, Screen.BtPanel.route
     ) && loggedIn
 
-    // 健康数据是站主本人的，读者不需要这个标签。
+    // 健康数据是站主本人的，读者不需要这个标签。宝塔那一格补在末位，
+    // 免得五格摆出来右边空着一块（非管理员三格，居中靠补位撑）。
     val tabs = remember(isAdmin) {
-        if (isAdmin) listOf(HomeTab, DiaryTab, HealthTab, AdminTab, SettingsTab)
+        if (isAdmin) listOf(HomeTab, DiaryTab, HealthTab, AdminTab, SettingsTab, BtPanelTab)
         else listOf(HomeTab, DiaryTab, SettingsTab)
     }
 
@@ -417,7 +421,7 @@ fun TypechoNavHost(
                     SettingsScreen(
                         appContainer = appContainer,
                         onOpenStorage = { navController.navigate(Screen.Storage.route) },
-                        onOpenBtPanel = { navController.navigate(Screen.BtPanel.route) },
+                        onOpenBtPanel = { switchTab(Screen.BtPanel.route) },
                         onLogout = {
                             navController.navigate(Screen.Login.route) {
                                 popUpTo(0) { inclusive = true }

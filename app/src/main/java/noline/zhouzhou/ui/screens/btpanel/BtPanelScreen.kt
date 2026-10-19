@@ -34,6 +34,7 @@ import noline.zhouzhou.data.model.BtTable
 import noline.zhouzhou.data.remote.BtServiceOp
 import noline.zhouzhou.data.repository.BtDashboard
 import noline.zhouzhou.data.repository.BtFailure
+import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.theme.NoLineChip
 import noline.zhouzhou.ui.theme.StatPill
@@ -58,6 +59,8 @@ fun BtPanelScreen(
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
     val state by viewModel.uiState.collectAsState()
     val t = LocalNoLine.current
+    // 这一页现在是底部标签之一，玻璃胶囊会盖在它上面，末行得自己让开。
+    val tabBarInset = rememberTabBarInset()
     var editing by remember { mutableStateOf(!state.configured) }
     var pending by remember { mutableStateOf<PendingAction?>(null) }
 
@@ -209,7 +212,7 @@ fun BtPanelScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(20.dp + tabBarInset))
         }
     }
 }
