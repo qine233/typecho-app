@@ -13,6 +13,9 @@ import java.util.concurrent.TimeUnit
 const val ReleaseRepoOwner = "qine233"
 const val ReleaseRepoName = "typecho-app"
 
+/** 仓库主页。「检测更新」问的就是这个仓库，关于页里的开源地址也用它，别分成两处写。 */
+val ReleaseRepoUrl = "https://github.com/$ReleaseRepoOwner/$ReleaseRepoName"
+
 @Serializable
 data class ReleaseAsset(
     val name: String = "",

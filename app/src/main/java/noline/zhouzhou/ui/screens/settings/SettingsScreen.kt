@@ -1,12 +1,16 @@
 package noline.zhouzhou.ui.screens.settings
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,8 +21,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -36,6 +43,7 @@ import noline.zhouzhou.BuildConfig
 import noline.zhouzhou.R
 import noline.zhouzhou.data.remote.GithubMirror
 import noline.zhouzhou.data.remote.NolineIssue
+import noline.zhouzhou.data.remote.ReleaseRepoUrl
 import noline.zhouzhou.data.repository.NolineReport
 import noline.zhouzhou.data.repository.StorageRepository
 import noline.zhouzhou.data.repository.StorageUsage
@@ -404,6 +412,8 @@ fun SettingsScreen(
 
                 UpdateCard(state = uiState.update, mirrorId = uiState.updateMirrorId, viewModel = viewModel)
 
+                RepoLinkCard()
+
                 Spacer(Modifier.height(24.dp))
 
                 // Logout button
@@ -535,6 +545,66 @@ private fun SettingsInfoItem(
             }
             Text(value, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * 开源地址。整张卡点开进浏览器，右边那颗只把链接放进剪贴板——
+ * 有人是想在电脑上打开，那一步浏览器帮不上忙。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RepoLinkCard() {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1600)
+            copied = false
+        }
+    }
+    Card(
+        onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ReleaseRepoUrl))) },
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Code, contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("开源地址", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    ReleaseRepoUrl.removePrefix("https://"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                if (copied) "已复制" else "复制",
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (copied) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        if (copied) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                        else Color.Transparent
+                    )
+                    .clickable {
+                        clipboard.setText(AnnotatedString(ReleaseRepoUrl))
+                        copied = true
+                    }
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
         }
     }
 }
