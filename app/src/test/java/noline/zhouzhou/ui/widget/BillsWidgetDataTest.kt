@@ -42,13 +42,15 @@ class BillsWidgetDataTest {
         budget: BillBudget = BillBudget(monthly = 2000.0),
         kindSpent: Map<String, Double> = emptyMap(),
         pending: List<PendingBill> = emptyList(),
-        hints: List<TitleHint> = emptyList()
+        hints: List<TitleHint> = emptyList(),
+        spec: WidgetSpec = WidgetSpec.Full
     ) = buildBillsWidgetData(
         configured = configured,
         overview = data,
         status = billBudgetStatus(budget, spent, kindSpent),
         pending = pending,
-        hints = hints
+        hints = hints,
+        spec = spec
     )
 
     private fun add(date: String, title: String, amount: Double, kind: String = "other") =
@@ -213,6 +215,31 @@ class BillsWidgetDataTest {
             ),
             data.rows
         )
+    }
+
+    @Test
+    fun `流水只留给整卡那格`() {
+        val data = overview.copy(
+            recent = (1..5).map {
+                BillRecord(id = "$it", date = "2026-10-18", title = "菜$it", amount = it.toDouble(), kind = "veg")
+            }
+        )
+        assertEquals(0, build(data = data, spec = WidgetSpec.Compact).rows.size)
+        // 3×2 只有两格高，硬塞一行流水会把底部的「记一笔」压扁
+        assertEquals(0, build(data = data, spec = WidgetSpec.Medium).rows.size)
+        assertEquals(3, build(data = data, spec = WidgetSpec.Full).rows.size)
+    }
+
+    @Test
+    fun `小卡该排的行数确实一格都不剩`() {
+        // 2×2 放不下流水，所以它的 rows 恒为空——就算队列里有货
+        val data = build(
+            spec = WidgetSpec.Compact,
+            pending = listOf(add("2026-10-18", "鸡蛋", 7.5, "egg"))
+        )
+        assertTrue(data.rows.isEmpty())
+        // 待同步的笔数还是得说，那是唯一能提醒用户「App 还没打开过」的地方
+        assertEquals("1 笔待同步", data.pendingText)
     }
 
     @Test

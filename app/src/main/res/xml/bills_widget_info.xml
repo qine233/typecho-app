@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 3×3 整卡。规格已经由选取器里那三格选完了，所以不再允许自由拉伸——
+     拉到比排版还矮会把底部的「记一笔」裁掉，那是看得见的坏。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:minHeight="180dp"
-    android:minResizeHeight="140dp"
-    android:minResizeWidth="160dp"
     android:minWidth="180dp"
-    android:previewImage="@mipmap/ic_launcher"
-    android:resizeMode="horizontal|vertical"
+    android:previewImage="@drawable/widget_preview_full"
+    android:resizeMode="none"
     android:targetCellHeight="3"
     android:targetCellWidth="3"
     android:updatePeriodMillis="1800000"

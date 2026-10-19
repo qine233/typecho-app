@@ -133,9 +133,13 @@
     <string name="drive_empty_hint">这一层还没有文件。点上面的上传按钮选本地文件，或者先建个文件夹。</string>
     <string name="drive_uploading">正在上传 %1$s</string>
 
-    <!-- 桌面小组件 -->
-    <string name="widget_bills_label">买菜记账</string>
-    <string name="widget_bills_description">本月花了多少、离预算还差多远，还能在桌面上直接记一笔</string>
+    <!-- 桌面小组件：选取器里三格，规格就写在标签上 -->
+    <string name="widget_bills_label">买菜记账 · 3×3</string>
+    <string name="widget_bills_description">本月合计、预算进度、最近买过的三行，外加一颗记一笔</string>
+    <string name="widget_bills_medium_label">买菜记账 · 3×2</string>
+    <string name="widget_bills_medium_description">本月合计、今天花销和预算进度，外加一颗记一笔</string>
+    <string name="widget_bills_compact_label">买菜记账 · 2×2</string>
+    <string name="widget_bills_compact_description">本月合计与今天花销，直接记一笔</string>
 
     <!-- Cloudreve 分享 -->
     <string name="share_title">分享管理</string>

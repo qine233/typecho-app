@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 选取器里 3×3 那格的示意图：卡片轮廓、进度条、三行流水、底部按钮，位置照真卡片摆。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="150dp"
+    android:height="150dp"
+    android:viewportWidth="150"
+    android:viewportHeight="150">
+    <path
+        android:fillColor="@color/widget_card_bg"
+        android:pathData="M20,0 H130 A20,20 0 0 1 150,20 V130 A20,20 0 0 1 130,150 H20 A20,20 0 0 1 0,130 V20 A20,20 0 0 1 20,0 Z" />
+    <path
+        android:fillColor="@color/widget_preview_faint"
+        android:pathData="M16,16 h42 v10 h-42 z" />
+    <path
+        android:fillColor="@color/widget_preview_text"
+        android:pathData="M16,34 h58 v18 h-58 z" />
+    <path
+        android:fillColor="@color/widget_preview_track"
+        android:pathData="M24,60 h102 a8,8 0 0 1 0,16 h-102 a8,8 0 0 1 0,-16 z" />
+    <path
+        android:fillColor="@color/widget_primary_bg"
+        android:pathData="M24,60 h48 a8,8 0 0 1 0,16 h-48 a8,8 0 0 1 0,-16 z" />
+    <path
+        android:fillColor="@color/widget_preview_faint"
+        android:pathData="M16,86 h84 v7 h-84 z M16,98 h84 v7 h-84 z M16,110 h84 v7 h-84 z" />
+    <path
+        android:fillColor="@color/widget_primary_bg"
+        android:pathData="M25,124 h100 a9,9 0 0 1 0,18 h-100 a9,9 0 0 1 0,-18 z" />
+</vector>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 3×2 那张：进度条留着，流水只有一行，剩下的位置都是大号数字的。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="150dp"
+    android:height="100dp"
+    android:viewportWidth="150"
+    android:viewportHeight="100">
+    <path
+        android:fillColor="@color/widget_card_bg"
+        android:pathData="M20,0 H130 A20,20 0 0 1 150,20 V80 A20,20 0 0 1 130,100 H20 A20,20 0 0 1 0,80 V20 A20,20 0 0 1 20,0 Z" />
+    <path
+        android:fillColor="@color/widget_preview_faint"
+        android:pathData="M16,11 h42 v9 h-42 z" />
+    <path
+        android:fillColor="@color/widget_preview_text"
+        android:pathData="M16,25 h58 v18 h-58 z" />
+    <path
+        android:fillColor="@color/widget_preview_track"
+        android:pathData="M22,48 h106 a6,6 0 0 1 0,12 h-106 a6,6 0 0 1 0,-12 z" />
+    <path
+        android:fillColor="@color/widget_primary_bg"
+        android:pathData="M22,48 h50 a6,6 0 0 1 0,12 h-50 a6,6 0 0 1 0,-12 z" />
+    <path
+        android:fillColor="@color/widget_primary_bg"
+        android:pathData="M26,66 h98 a10,10 0 0 1 0,20 h-98 a10,10 0 0 1 0,-20 z" />
+</vector>

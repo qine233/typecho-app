@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="widget_primary_bg">#8A9BFF</color>
+    <color name="widget_card_bg">#1B1C20</color>
+    <color name="widget_card_border">#3D3D3F</color>
+    <color name="widget_preview_text">#F7F7FA</color>
+    <color name="widget_preview_faint">#6E7280</color>
+    <color name="widget_preview_track">#33353B</color>
 </resources>

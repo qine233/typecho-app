@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2×2 那张：只剩本月合计、今天和一颗按钮。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <path
+        android:fillColor="@color/widget_card_bg"
+        android:pathData="M20,0 H80 A20,20 0 0 1 100,20 V80 A20,20 0 0 1 80,100 H20 A20,20 0 0 1 0,80 V20 A20,20 0 0 1 20,0 Z" />
+    <path
+        android:fillColor="@color/widget_preview_faint"
+        android:pathData="M12,12 h32 v8 h-32 z" />
+    <path
+        android:fillColor="@color/widget_preview_text"
+        android:pathData="M12,25 h52 v18 h-52 z" />
+    <path
+        android:fillColor="@color/widget_preview_faint"
+        android:pathData="M12,47 h38 v7 h-38 z" />
+    <path
+        android:fillColor="@color/widget_primary_bg"
+        android:pathData="M23,60 h54 a11,11 0 0 1 0,22 h-54 a11,11 0 0 1 0,-22 z" />
+</vector>

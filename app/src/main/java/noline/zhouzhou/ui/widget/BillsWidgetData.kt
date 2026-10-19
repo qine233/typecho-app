@@ -22,7 +22,6 @@ import kotlin.math.roundToInt
 data class BillsWidgetData(
     val configured: Boolean,
     val hasData: Boolean,
-    val dateText: String,
     val monthAmount: String,
     val monthMeta: String,
     val todayText: String,
@@ -37,12 +36,36 @@ data class BillsWidgetData(
     companion object {
         /** 读不到本地缓存时的兜底：不能画一张空白卡，得说清是哪儿没通。 */
         fun unavailable() = BillsWidgetData(
-            configured = false, hasData = false, dateText = "", monthAmount = "—",
+            configured = false, hasData = false, monthAmount = "—",
             monthMeta = "", todayText = "", pendingText = "", hasBudgetBar = false,
             budgetFraction = 0f, budgetText = "", percentText = "", over = false,
             rows = emptyList()
         )
     }
+}
+
+/**
+ * 桌面选取器里的三种规格。
+ *
+ * 规格不只是「排几行流水」——桌面给的高度是格子数算死的（2 格 ≈ 178dp），
+ * 3×2 里硬塞一行流水会把底部的「记一笔」压扁，所以流水只留给 3×3 那一格。
+ * 字号和按钮高度同理，都得跟着格子走，写在枚举里比散在组合过程里好核对。
+ */
+enum class WidgetSpec(
+    val rows: Int,
+    /** 窄卡（2×2）放不下「本月 · 40 笔 · 18/31 天」这种长串，Glance 不会打点，只会裁掉。 */
+    val wide: Boolean,
+    val amountSp: Float,
+    val buttonDp: Int
+) {
+    /** 2×2：本月合计 + 今天 + 记一笔 */
+    Compact(0, false, 24f, 34),
+
+    /** 3×2：再来一条预算进度和百分比 */
+    Medium(0, true, 26f, 36),
+
+    /** 3×3：整卡，最近买过的排三行 */
+    Full(3, true, 27f, 38)
 }
 
 /** 卡片上的一行流水：点它是「再买一次」，所以得带着品名和分类。 */
@@ -60,7 +83,8 @@ fun buildBillsWidgetData(
     overview: BillsOverview?,
     status: BillBudgetStatus,
     pending: List<PendingBill>,
-    hints: List<TitleHint>
+    hints: List<TitleHint>,
+    spec: WidgetSpec = WidgetSpec.Full
 ): BillsWidgetData {
     val currency = overview?.currency ?: "CNY"
     val today = overview?.span?.today?.takeIf { it.length >= 10 } ?: RecordPreflight.today()
@@ -79,7 +103,6 @@ fun buildBillsWidgetData(
     return BillsWidgetData(
         configured = configured,
         hasData = !empty,
-        dateText = slashDate(today),
         monthAmount = overview?.let { moneyShort(monthTotal, currency) } ?: "—",
         monthMeta = if (empty) ""
         else listOfNotNull(
@@ -95,7 +118,7 @@ fun buildBillsWidgetData(
         budgetText = budgetText(status),
         percentText = if (hasBar) "${(status.usedFraction * 100).roundToInt()}%" else "",
         over = status.anyOver,
-        rows = buildRows(unsent, overview, hints, currency)
+        rows = buildRows(unsent, overview, hints, currency, spec.rows)
     )
 }
 
@@ -114,21 +137,20 @@ private fun budgetText(status: BillBudgetStatus): String {
     return if (overKind.isEmpty()) head else "$head · $overKind"
 }
 
-/** 卡片上排几行流水：三行刚好把 3×3 那张卡填平，再多就没地方放主按钮了。 */
-internal const val WidgetRowCount = 3
-
-/** 品名占的列宽是死的，超长只能在算文案时截断，Glance 不会自己打点。 */
-internal const val RowTitleMaxChars = 6
-
 /**
  * 最近买过的那几行：本机还没传上去的排最前（它们才是用户刚做的事），
  * 再往后是站点回的近几日流水；一条记录都没有才退到历史候选，那种行没有金额。
+ *
+ * 品名列占的宽度是死的，超长只能在算文案时截断，Glance 不会自己打点。
  */
+internal const val RowTitleMaxChars = 6
+
 private fun buildRows(
     unsent: List<BillRecord>,
     overview: BillsOverview?,
     hints: List<TitleHint>,
-    currency: String
+    currency: String,
+    rowCount: Int
 ): List<WidgetBillRow> {
     val fromUnsent = unsent.sortedByDescending { it.date }.map {
         WidgetBillRow(
@@ -161,6 +183,6 @@ private fun buildRows(
     }
     return (fromUnsent + fromRecent + fromHints)
         .distinctBy { it.title }
-        .take(WidgetRowCount)
+        .take(rowCount)
         .map { it.copy(title = it.title.take(RowTitleMaxChars)) }
 }

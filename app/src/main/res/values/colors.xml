@@ -3,4 +3,10 @@
     <!-- 小组件里唯一画不进 ColorProvider 的东西：Glance 的圆角背景只能给一张 drawable，
          而它是在桌面进程里解析的，所以只能靠 -night 目录跟着系统深色走。 -->
     <color name="widget_primary_bg">#425AEF</color>
+    <color name="widget_card_bg">#FFFFFF</color>
+    <color name="widget_card_border">#E3E8F7</color>
+    <!-- 下面四个只在选取器的示意图 widget_preview_* 里用，真卡片是 Glance 画的 -->
+    <color name="widget_preview_text">#363636</color>
+    <color name="widget_preview_faint">#B6BAC9</color>
+    <color name="widget_preview_track">#E9ECF5</color>
 </resources>

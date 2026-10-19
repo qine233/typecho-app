@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  卡片本体。Glance 的 cornerRadius 要 API 31，minSdk 26 只能用 shape drawable
+  当根背景：圆角外的像素是透明的，桌面露出壁纸，圆角多大由这里说了算。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_card_bg" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/widget_card_border" />
+    <corners android:radius="22dp" />
+</shape>

@@ -49,22 +49,51 @@ import noline.zhouzhou.ui.theme.LightNoLine
 
 /**
  * 桌面上的买菜记账卡片：本月花了多少、离预算还差多远，
- * 底下两行是最近买过的东西——点一行等于「再买一次」，品名和分类已经填好。
+ * 大卡底下还有最近买过的几行——点一行等于「再买一次」，品名和分类已经填好。
  *
  * 数据只读本地缓存（接口拉回来的那份），所以断网也能显示、进程冷启也不会转圈。
  * 真要把新的流水拉回来，靠标题行那颗「刷新」或者 App 里记完一笔之后的一次 updateAll。
+ *
+ * 规格由 manifest 里的 receiver 决定，一类一格，选取器里三格随便挑：
+ * [BillsWidgetCompact] 2×2、[BillsWidgetMedium] 3×2、[BillsWidget] 3×3。
  */
 class BillsWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) =
+        provideBills(context, WidgetSpec.Full)
+}
 
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val data = runCatching { loadBillsWidgetData(context) }
-            .getOrElse { BillsWidgetData.unavailable() }
-        provideContent { BillsWidgetContent(data) }
-    }
+class BillsWidgetMedium : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) =
+        provideBills(context, WidgetSpec.Medium)
+}
+
+class BillsWidgetCompact : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) =
+        provideBills(context, WidgetSpec.Compact)
 }
 
 class BillsWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = BillsWidget()
+}
+
+class BillsWidgetMediumReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = BillsWidgetMedium()
+}
+
+class BillsWidgetCompactReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = BillsWidgetCompact()
+}
+
+private val AllBillsWidgets: List<GlanceAppWidget> =
+    listOf(BillsWidget(), BillsWidgetMedium(), BillsWidgetCompact())
+
+/**
+ * 三种规格吃的是同一份本地缓存，所以任何一次刷新都得把桌面上的卡片全部重画——
+ * 只点一下当前那张，另一张会停在旧数字上，看上去像算错了。
+ */
+private suspend fun updateAllBillsWidgets(context: Context) {
+    val app = context.applicationContext
+    AllBillsWidgets.forEach { runCatching { it.updateAll(app) } }
 }
 
 /**
@@ -77,18 +106,25 @@ class BillsWidgetRefreshCallback : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        val repository = (context.applicationContext as? TypechoApplication)?.container?.billsRepository
+        val app = context.applicationContext
+        val repository = (app as? TypechoApplication)?.container?.billsRepository
         runCatching { withContext(Dispatchers.IO) { repository?.refresh(flushFirst = false) } }
-        BillsWidget().update(context, glanceId)
+        updateAllBillsWidgets(app)
     }
 }
 
 /** 记完一笔、改完预算之后叫一声，让卡片当场跟上。 */
 suspend fun refreshBillsWidget(context: Context) {
-    runCatching { BillsWidget().updateAll(context.applicationContext) }
+    updateAllBillsWidgets(context.applicationContext)
 }
 
-private suspend fun loadBillsWidgetData(context: Context): BillsWidgetData {
+private suspend fun GlanceAppWidget.provideBills(context: Context, spec: WidgetSpec) {
+    val data = runCatching { loadBillsWidgetData(context, spec) }
+        .getOrElse { BillsWidgetData.unavailable() }
+    provideContent { BillsWidgetContent(spec, data) }
+}
+
+private suspend fun loadBillsWidgetData(context: Context, spec: WidgetSpec): BillsWidgetData {
     val repository = (context.applicationContext as? TypechoApplication)?.container?.billsRepository
         ?: return BillsWidgetData.unavailable()
     return withContext(Dispatchers.IO) {
@@ -97,39 +133,47 @@ private suspend fun loadBillsWidgetData(context: Context): BillsWidgetData {
             overview = repository.cachedOverview(),
             status = repository.currentBudgetStatus(),
             pending = repository.pendingOps(),
-            hints = repository.titleHints()
+            hints = repository.titleHints(),
+            spec = spec
         )
     }
 }
 
-private val CardBackground = ColorProvider(LightNoLine.cardBg, DarkNoLine.cardBg)
 private val StrongText = ColorProvider(LightNoLine.textStrong, DarkNoLine.textStrong)
 private val SoftText = ColorProvider(LightNoLine.textSecondary, DarkNoLine.textSecondary)
 private val FaintText = ColorProvider(LightNoLine.textLight, DarkNoLine.textLight)
 private val AccentColor = ColorProvider(LightNoLine.accent, DarkNoLine.accent)
 private val AccentOnColor = ColorProvider(LightNoLine.onBrand, DarkNoLine.onBrand)
 private val TrackColor = ColorProvider(Color(0xFFE9ECF5), Color(0xFF33353B))
-private val HairlineColor = ColorProvider(LightNoLine.cardBorder, DarkNoLine.cardBorder)
 private val OverColor = ColorProvider(LightNoLine.healthObese, DarkNoLine.healthObese)
 private val WarnColor = ColorProvider(LightNoLine.healthOver, DarkNoLine.healthOver)
 
 /**
  * Glance 的每个容器最多放 10 个子元素，超出的会被**静默截断**（logcat 里只有一行
  * `Column container cannot have more than 10 elements`，卡片照样画得出来）。
- * 所以外层 Column 一共九段，进度条和分隔线都只占一个位置。
+ * 所以外层 Column 只有六段，进度条和分隔线都各自挤在一个内层 Column 里。
  *
- * 也没有 weight：右对齐一律靠「fillMaxWidth + TextAlign.End」，
+ * 没有带系数的 weight，只有 ColumnScope/RowScope 那个 `defaultWeight()`（等价于
+ * fillMaxHeight/fillMaxWidth）——所以均分空隙可以，按比例分配不行；
+ * 右对齐一律靠「fillMaxWidth + TextAlign.End」，
  * 流水行的品名列是死宽（[RowTitleMaxChars] 在算文案时就截好，Glance 不会自己打点）。
+ *
+ * 圆角不走 Glance 的 cornerRadius（那是 API 31 起的东西，minSdk 26 用不了），
+ * 根背景给的是 [R.drawable.widget_card_bg] 那张 shape：圆角外面是透明的，桌面露壁纸。
  */
 @Composable
-private fun BillsWidgetContent(data: BillsWidgetData) {
+private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
     val context = LocalContext.current
+    val wide = spec.wide
 
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(CardBackground)
-            .padding(horizontal = 16.dp, vertical = 13.dp)
+            .background(ImageProvider(R.drawable.widget_card_bg))
+            .padding(
+                horizontal = if (wide) 18.dp else 15.dp,
+                vertical = if (wide) 13.dp else 12.dp
+            )
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -155,13 +199,20 @@ private fun BillsWidgetContent(data: BillsWidgetData) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         data.monthAmount,
-                        style = TextStyle(color = StrongText, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+                        style = TextStyle(
+                            color = StrongText,
+                            fontSize = spec.amountSp.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     )
-                    Text(
-                        data.monthMeta,
-                        style = TextStyle(color = FaintText, fontSize = 10.5.sp),
-                        modifier = GlanceModifier.padding(start = 8.dp, bottom = 5.dp)
-                    )
+                    // 2×2 那点宽度塞不下「本月 · 40 笔 · 18/31 天」，Glance 不会打点，只会裁掉
+                    if (wide) {
+                        Text(
+                            data.monthMeta,
+                            style = TextStyle(color = FaintText, fontSize = 10.5.sp),
+                            modifier = GlanceModifier.padding(start = 8.dp, bottom = 5.dp)
+                        )
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(data.todayText, style = TextStyle(color = SoftText, fontSize = 12.sp))
@@ -193,11 +244,13 @@ private fun BillsWidgetContent(data: BillsWidgetData) {
                             fontWeight = if (data.over) FontWeight.Bold else FontWeight.Normal
                         )
                     )
-                    Text(
-                        data.percentText,
-                        style = TextStyle(color = FaintText, fontSize = 11.sp, textAlign = TextAlign.End),
-                        modifier = GlanceModifier.fillMaxWidth()
-                    )
+                    if (wide) {
+                        Text(
+                            data.percentText,
+                            style = TextStyle(color = FaintText, fontSize = 11.sp, textAlign = TextAlign.End),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         } else {
@@ -208,7 +261,11 @@ private fun BillsWidgetContent(data: BillsWidgetData) {
             )
         }
 
+        // 桌面给的高度不一定刚好是排版要吃的那点，剩下的空隙全交给一根 defaultWeight 的弹簧。
+        // 有流水时它顶在「再买一次」上面，让流水和「记一笔」粘成底部那一组；
+        // 没流水时（2×2 和 3×2）它顶在按钮上面，不然卡片底下会空出一条。
         if (data.rows.isNotEmpty()) {
+            Spacer(GlanceModifier.defaultWeight())
             Column(modifier = GlanceModifier.padding(top = 11.dp)) {
                 Text(
                     "再买一次",
@@ -241,13 +298,15 @@ private fun BillsWidgetContent(data: BillsWidgetData) {
                     }
                 }
             }
+            Spacer(GlanceModifier.height(10.dp))
+        } else {
+            Spacer(GlanceModifier.defaultWeight())
         }
 
-        Spacer(GlanceModifier.height(11.dp))
         Box(
             modifier = GlanceModifier
                 .fillMaxWidth()
-                .height(38.dp)
+                .height(spec.buttonDp.dp)
                 .background(ImageProvider(R.drawable.widget_primary_bg))
                 .clickable(
                     if (data.configured) openBillsAction(context, AppLinks.billsAdd())
@@ -257,7 +316,11 @@ private fun BillsWidgetContent(data: BillsWidgetData) {
         ) {
             Text(
                 if (data.configured) "记一笔" else "去设置",
-                style = TextStyle(color = AccentOnColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(
+                    color = AccentOnColor,
+                    fontSize = if (wide) 14.sp else 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             )
         }
     }
