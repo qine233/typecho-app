@@ -2,6 +2,7 @@ package noline.zhouzhou.ui.navigation
 
 import noline.zhouzhou.data.model.BillKind
 import noline.zhouzhou.data.sync.StatusNotifier
+import noline.zhouzhou.data.sync.UpdateNotifier
 
 /**
  * App 内部深链。常驻通知和桌面小组件都靠它把人送到指定页面，
@@ -38,6 +39,8 @@ fun parseAppLink(link: String?): AppLink? {
     return when {
         raw == StatusNotifier.DEEP_LINK -> AppLink(Screen.Storage.route)
         raw == StatusNotifier.DEEP_LINK_BILLS -> AppLink(Screen.Bills.route)
+        // 更新下完那条通知：回到设置页，由页面把包交给安装器。
+        raw == UpdateNotifier.DEEP_LINK_UPDATE -> AppLink(Screen.Settings.route)
         raw == AppLinks.HEALTH -> AppLink(Screen.Health.route)
         raw == AppLinks.HEALTH_ADD -> AppLink(Screen.Health.route, openAdd = true)
         raw == AppLinks.BILLS_ADD || raw.startsWith("${AppLinks.BILLS_ADD}?") ->

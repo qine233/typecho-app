@@ -18,6 +18,13 @@ class AppDeepLinkTest {
     }
 
     @Test
+    fun `更新下完那条通知落回设置页`() {
+        // 通知自己不起安装器（后台起 Activity 会被系统拦），所以这条只是把人送回那一页。
+        assertEquals(Screen.Settings.route, parseAppLink("nline://update")?.route)
+        assertNull(parseAppLink("nline://update/kill-everything"))
+    }
+
+    @Test
     fun `体重卡片那两条落在健康页`() {
         assertEquals(Screen.Health.route, parseAppLink("nline://health")?.route)
         assertEquals(false, parseAppLink("nline://health")?.openAdd)

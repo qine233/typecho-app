@@ -47,6 +47,7 @@ import noline.zhouzhou.data.remote.ReleaseRepoUrl
 import noline.zhouzhou.data.repository.NolineReport
 import noline.zhouzhou.data.repository.StorageRepository
 import noline.zhouzhou.data.repository.StorageUsage
+import noline.zhouzhou.data.sync.updateNoticeText
 import noline.zhouzhou.ui.components.GlassTopBar
 import noline.zhouzhou.ui.components.NolineGuide
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
@@ -79,13 +80,22 @@ fun SettingsScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.refreshPermission()
-                storageTick++
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    viewModel.setScreenVisible(true)
+                    viewModel.refreshPermission()
+                    storageTick++
+                }
+                // 下载完那一刻人不在页面上就别抢焦点弹安装器，留通知让他自己点回来。
+                Lifecycle.Event.ON_STOP -> viewModel.setScreenVisible(false)
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            viewModel.setScreenVisible(false)
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     // 常驻通知与后台补交
@@ -1082,7 +1092,7 @@ private fun ReportLine(label: String, value: String, good: Boolean, color: andro
 
 /**
  * 检测更新：问 GitHub Releases 要最新版，有更新就下 apk 交给系统安装器。
- * 下载走缓存目录，所以中途取消不会留下占空间的半成品。
+ * 下载走缓存目录、由前台服务扛着，所以切后台不断、中途取消也不留占空间的半成品。
  * 来源可以选，但无论选哪个，剩下的来源都会依次兜底（见 GithubMirror）。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -1098,7 +1108,9 @@ private fun UpdateCard(state: UpdateState?, mirrorId: String, viewModel: Setting
         is UpdateState.NoMatchingBuild ->
             "有新版本，但没挂本机这个渠道的包（debug 与正式签名不通用）"
         is UpdateState.NeedsPermission -> "系统还没允许本应用安装自己下载的包"
-        is UpdateState.Downloading -> "下载中 ${(state.progress * 100).toInt()}%"
+        is UpdateState.Downloading ->
+            "${updateNoticeText(state.progress)} · 切后台也在下，进度在通知栏"
+        is UpdateState.ReadyToInstall -> "${state.info.version} 已经下好，装不装看这一步"
         is UpdateState.HandedToInstaller -> "安装界面已拉起，在弹窗里点继续"
         is UpdateState.Failed -> state.message
     }
@@ -1132,12 +1144,18 @@ private fun UpdateCard(state: UpdateState?, mirrorId: String, viewModel: Setting
             }
 
             AnimatedVisibility(visible = state is UpdateState.Downloading) {
+                val progress = (state as? UpdateState.Downloading)?.progress
                 Column {
                     Spacer(Modifier.height(12.dp))
-                    LinearProgressIndicator(
-                        progress = { (state as? UpdateState.Downloading)?.progress ?: 0f },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (progress != null && progress.hasTotal) {
+                        LinearProgressIndicator(
+                            progress = { progress.fraction },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        // 来源没报 Content-Length，百分比是编不出来的，画个不确定的条就好。
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
                 }
             }
 
@@ -1154,7 +1172,9 @@ private fun UpdateCard(state: UpdateState?, mirrorId: String, viewModel: Setting
                         FilledTonalButton(onClick = viewModel::openInstallPermission) { Text("去授权") }
                         TextButton(onClick = { viewModel.downloadUpdate(state.info) }) { Text("我允许了") }
                     }
-                    is UpdateState.HandedToInstaller -> TextButton(onClick = viewModel::reinstall) {
+                    is UpdateState.ReadyToInstall ->
+                        FilledTonalButton(onClick = viewModel::installDownloaded) { Text("立即安装") }
+                    is UpdateState.HandedToInstaller -> TextButton(onClick = viewModel::installDownloaded) {
                         Text("重新打开安装器")
                     }
                     else -> FilledTonalButton(

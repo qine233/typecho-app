@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- WorkManager 的加急任务（通知上点「立即补交」）内部要借一次前台服务。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 更新包的下载挂在前台服务上，Android 14 起这类服务要单独声明用途。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".TypechoApplication"
@@ -105,6 +107,13 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/health_widget_compact_info" />
         </receiver>
+
+        <!-- 下载新版本 apk：App 切后台也要接着下，所以是前台服务，不是 ViewModel 里的协程。
+             dataSync 这个类型对得上「用户在屏幕上亲手点了下载」这一动机。 -->
+        <service
+            android:name=".data.sync.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- 更新包落在 cacheDir/updates，安装器是另一个进程，只能经 FileProvider 给 URI -->
         <provider

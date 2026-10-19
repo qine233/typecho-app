@@ -30,6 +30,17 @@ data class UpdateInfo(
     val pageUrl: String
 )
 
+/**
+ * 下载进度。字节数一起带上，是因为通知栏那句「12.3 MB / 22.3 MB」比一个百分比有用得多
+ * ——慢的时候人想知道的是还剩多少，不是还要等多久。
+ */
+data class DownloadProgress(val writtenBytes: Long, val totalBytes: Long) {
+    /** 来源没报长度（分块传输）时为 0f，界面据此改画不确定进度。 */
+    val fraction: Float
+        get() = if (totalBytes <= 0) 0f else (writtenBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+    val hasTotal: Boolean get() = totalBytes > 0
+}
+
 sealed interface UpdateOutcome {
     data object UpToDate : UpdateOutcome
     data class Available(val update: UpdateInfo) : UpdateOutcome
@@ -85,6 +96,10 @@ private fun versionSegments(value: String): List<Long> {
     return head.value.split('.').mapNotNull { it.toLongOrNull() }
 }
 
+/** 版本号要进文件名，所以只留安全字符；tag 上一般不会带别的，防的是接口给回来奇怪东西。 */
+internal fun apkName(version: String): String =
+    "update-" + version.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".apk"
+
 /**
  * 自更新：只认 GitHub Releases 上按渠道命名的那个 apk。
  * CI 目前只出 debug 包，所以正式签名的包上线之前，这条链只对 debug 渠道有效。
@@ -101,23 +116,32 @@ class UpdateRepository(
     val currentVersion: String = BuildConfig.VERSION_NAME
     private val wantsDebug: Boolean = BuildConfig.DEBUG
 
+    /**
+     * 上一次下完、还躺在缓存里的那个包。按版本命名，所以旧版残留不会被当成新版交给安装器——
+     * 装错包比装不上更糟。安装器被用户划走后靠它再拉一次，不必重新下。
+     */
+    fun cachedApk(version: String): File? = File(updateDir(), apkName(version)).takeIf { it.length() > 0 }
+
+    private fun updateDir() = File(context.cacheDir, "updates").apply { mkdirs() }
+
     suspend fun check(): UpdateOutcome =
         resolveUpdate(api.latestRelease(), currentVersion, wantsDebug)
 
     /**
-     * 下到缓存目录，边下边回调进度（0f..1f）。返回交给系统安装器的文件。
+     * 下到缓存目录，边下边回调进度。返回交给系统安装器的文件。
      *
+     * 调用方是前台服务，所以这里不再自己切线程之外的东西：整段都在 IO 上跑，
      * 一个来源没成（连不上、非 2xx、大小对不上、开头的 zip magic 都不是）就换下一个，
      * 因为镜像站是会挂的，而装错了包比装不上更糟。
      */
     suspend fun download(
         update: UpdateInfo,
         preferred: GithubMirror = GithubMirror.GhProxyCom,
-        onProgress: (Float) -> Unit
+        onProgress: (DownloadProgress) -> Unit
     ): File = withContext(Dispatchers.IO) {
-        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val dir = updateDir()
         dir.listFiles()?.forEach { it.delete() }
-        val target = File(dir, "update.apk")
+        val target = File(dir, apkName(update.version))
 
         var failure = "所有来源都没能下下这个包"
         for (mirror in downloadChain(preferred)) {
@@ -154,7 +178,7 @@ class UpdateRepository(
         url: String,
         target: File,
         expectedSize: Long,
-        onProgress: (Float) -> Unit
+        onProgress: (DownloadProgress) -> Unit
     ): Long {
         val request = Request.Builder()
             .url(url)
@@ -173,7 +197,7 @@ class UpdateRepository(
                         if (read < 0) break
                         output.write(buffer, 0, read)
                         written += read
-                        if (total > 0) onProgress((written.toFloat() / total).coerceIn(0f, 1f))
+                        onProgress(DownloadProgress(written, total))
                     }
                     output.flush()
                 }

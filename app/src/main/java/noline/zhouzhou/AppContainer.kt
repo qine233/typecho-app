@@ -13,6 +13,7 @@ import noline.zhouzhou.data.remote.SearchFeedApi
 import noline.zhouzhou.data.remote.TypechoApi
 import noline.zhouzhou.data.repository.*
 import noline.zhouzhou.data.sync.StatusRepository
+import noline.zhouzhou.data.sync.UpdateDownloadState
 
 class AppContainer(val application: Application) {
     val api: TypechoApi by lazy { TypechoApi() }
@@ -51,6 +52,12 @@ class AppContainer(val application: Application) {
         BillsRepository(nolineApi, settingsRepository, billsLocalStore)
     }
     val updateRepository: UpdateRepository by lazy { UpdateRepository(application) }
+
+    /**
+     * 更新包下载的中转状态：前台服务写、设置页读。放在这里是因为它必须活得比
+     * ViewModel 久——人切去后台下载还在跑，回来那一页要能立刻接上进度。
+     */
+    val updateDownload = UpdateDownloadState()
     val cloudreveRepository: CloudreveRepository by lazy {
         CloudreveRepository(cloudreveApi) { settingsRepository.cloudreveConfig.first() }
     }

@@ -117,4 +117,12 @@ class UpdateRepositoryTest {
         val outcome = resolveUpdate(release("latest", apk("NLecho-debug.apk")), "1.0.0", true)
         assertEquals(UpdateOutcome.UpToDate, outcome)
     }
+
+    @Test
+    fun `缓存里的包按版本命名`() {
+        // 只叫 update.apk 的话，上次下的旧版会被当成这次的新版交给安装器。
+        assertEquals("update-1.15.0.apk", apkName("1.15.0"))
+        assertEquals("update-1.15.0-rc1.apk", apkName("1.15.0-rc1"))
+        assertEquals("update-.._x.apk", apkName("../x"))
+    }
 }

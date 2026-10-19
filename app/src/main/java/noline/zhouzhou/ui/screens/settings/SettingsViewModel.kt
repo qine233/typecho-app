@@ -6,15 +6,17 @@ import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.remote.GithubMirror
 import noline.zhouzhou.data.remote.NolineException
 import noline.zhouzhou.data.remote.NolineIssue
+import noline.zhouzhou.data.repository.DownloadProgress
 import noline.zhouzhou.data.repository.NolineReport
 import noline.zhouzhou.data.repository.UpdateInfo
 import noline.zhouzhou.data.repository.UpdateOutcome
 import noline.zhouzhou.data.repository.maskSecret
+import noline.zhouzhou.data.sync.UpdateDownloadService
+import noline.zhouzhou.data.sync.UpdatePhase
 import noline.zhouzhou.util.canInstallFromUnknownSources
 import noline.zhouzhou.util.installApk
 import noline.zhouzhou.util.openInstallPermissionSettings
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,7 +65,12 @@ sealed interface UpdateState {
     data class Available(val info: UpdateInfo) : UpdateState
     data object NoMatchingBuild : UpdateState
     data class NeedsPermission(val info: UpdateInfo) : UpdateState
-    data class Downloading(val info: UpdateInfo, val progress: Float) : UpdateState
+
+    /** 下载在前台服务里跑，切后台也不断；这里只是照着通知同步一份。 */
+    data class Downloading(val info: UpdateInfo, val progress: DownloadProgress) : UpdateState
+
+    /** 下完了、包在缓存里躺着，但人当时不在页面上，所以没自动拉起安装器。 */
+    data class ReadyToInstall(val info: UpdateInfo) : UpdateState
     data class HandedToInstaller(val info: UpdateInfo) : UpdateState
     data class Failed(val message: String) : UpdateState
 }
@@ -75,8 +82,9 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
-    private var downloadJob: Job? = null
-    private var downloadedApk: File? = null
+    /** 这一页亲手按下的下载：下完时如果人还在页面上，就把安装器直接拉起来。 */
+    private var armedAutoInstall = false
+    private var screenVisible = true
 
     init {
         viewModelScope.launch {
@@ -137,6 +145,46 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                 _uiState.update { it.copy(updateMirrorId = mirror.id) }
             }
         }
+        // 下载归前台服务，这里只跟着它的状态改口。用 AppContainer 里那份共享状态而不是
+        // 自己起协程，所以人切去后台再回来、甚至页面重建，进度都接得上。
+        viewModelScope.launch {
+            container.updateDownload.phase.collect { phase -> applyPhase(phase) }
+        }
+    }
+
+    private fun applyPhase(phase: UpdatePhase?) {
+        val next = when (phase) {
+            null -> when (_uiState.value.update) {
+                is UpdateState.Downloading, is UpdateState.ReadyToInstall -> null
+                else -> return
+            }
+            is UpdatePhase.Downloading -> UpdateState.Downloading(phase.info, phase.progress)
+            is UpdatePhase.Ready -> {
+                // 包在缓存里，按版本找回它；被系统清掉就退回「可以重新下」。
+                val apk = container.updateRepository.cachedApk(phase.info.version)
+                val mine = armedAutoInstall
+                armedAutoInstall = false
+                when {
+                    apk == null -> UpdateState.Available(phase.info)
+                    // 后台起 Activity 会被系统拦，所以下完时人不在页面上就只留通知和按钮。
+                    mine && screenVisible -> {
+                        handedToInstaller(phase.info, apk)
+                        return
+                    }
+                    else -> UpdateState.ReadyToInstall(phase.info)
+                }
+            }
+            is UpdatePhase.Failed -> {
+                armedAutoInstall = false
+                UpdateState.Failed(phase.message)
+            }
+        }
+        _uiState.update { it.copy(update = next) }
+    }
+
+    /** 页面可见性由设置页的生命周期回调喂进来。 */
+    fun setScreenVisible(visible: Boolean) {
+        screenVisible = visible
     }
 
     /** 当前选中的更新来源；界面只存 id，动手时换成枚举。 */
@@ -278,47 +326,37 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             _uiState.update { it.copy(update = UpdateState.NeedsPermission(info)) }
             return
         }
-        downloadedApk?.takeIf { it.length() > 0 }?.let { alreadyThere ->
-            handedToInstaller(info, alreadyThere)
+        // 先看是不是已经在下：下了一半的那个文件也在缓存里，长度不为 0，不能当成下好的包。
+        if (_uiState.value.update is UpdateState.Downloading) return
+        val already = container.updateRepository.cachedApk(info.version)
+        if (already != null) {
+            handedToInstaller(info, already)
             return
         }
-        downloadJob?.cancel()
-        downloadJob = viewModelScope.launch {
-            _uiState.update { it.copy(update = UpdateState.Downloading(info, 0f)) }
-            var lastPercent = -1
-            try {
-                val file = container.updateRepository.download(info, preferredMirror()) { progress ->
-                    val percent = (progress * 100).toInt()
-                    if (percent != lastPercent) {
-                        lastPercent = percent
-                        _uiState.update {
-                            val current = it.update as? UpdateState.Downloading ?: return@update it
-                            it.copy(update = current.copy(progress = percent / 100f))
-                        }
-                    }
-                }
-                downloadedApk = file
-                handedToInstaller(info, file)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _uiState.update { it.copy(update = UpdateState.Failed(e.message ?: "下载中断")) }
-            }
+        armedAutoInstall = true
+        _uiState.update {
+            it.copy(update = UpdateState.Downloading(info, DownloadProgress(0L, info.sizeBytes)))
         }
+        // 协程交给前台服务，这个 ViewModel 一销毁就把下载带走的话，切个后台就前功尽弃。
+        UpdateDownloadService.start(app, info, preferredMirror())
     }
 
-    /** 安装器被用户划走之后还能再拉一次，不必重新下载。 */
-    fun reinstall() {
-        val info = (_uiState.value.update as? UpdateState.HandedToInstaller)?.info ?: return
-        downloadedApk?.takeIf { it.length() > 0 }?.let { handedToInstaller(info, it) }
-            ?: downloadUpdate(info)
+    /** 安装器被用户划走、或者下完时人不在页面上，都靠这个按钮再来一次。 */
+    fun installDownloaded() {
+        val info = when (val state = _uiState.value.update) {
+            is UpdateState.ReadyToInstall -> state.info
+            is UpdateState.HandedToInstaller -> state.info
+            else -> return
+        }
+        val apk = container.updateRepository.cachedApk(info.version)
+        if (apk == null) downloadUpdate(info) else handedToInstaller(info, apk)
     }
 
     fun openInstallPermission() = app.openInstallPermissionSettings()
 
     fun cancelUpdate() {
-        downloadJob?.cancel()
-        downloadJob = null
+        armedAutoInstall = false
+        UpdateDownloadService.cancel(app)
         _uiState.update { it.copy(update = null) }
     }
 
@@ -336,9 +374,5 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                 }
             }
             .onSuccess { _uiState.update { it.copy(update = UpdateState.HandedToInstaller(info)) } }
-    }
-
-    override fun onCleared() {
-        downloadJob?.cancel()
     }
 }
