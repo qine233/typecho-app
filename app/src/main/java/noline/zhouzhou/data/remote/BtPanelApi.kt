@@ -1,15 +1,9 @@
 package noline.zhouzhou.data.remote
 
-import noline.zhouzhou.data.model.BtDisk
-import noline.zhouzhou.data.model.BtNetwork
 import noline.zhouzhou.data.model.BtPanelConfig
 import noline.zhouzhou.data.model.BtRow
-import noline.zhouzhou.data.model.BtSystemSnapshot
 import noline.zhouzhou.data.model.BtTable
-import noline.zhouzhou.data.model.btDisks
-import noline.zhouzhou.data.model.btNetwork
 import noline.zhouzhou.data.model.btRows
-import noline.zhouzhou.data.model.btSystemSnapshot
 import noline.zhouzhou.data.model.btText
 import noline.zhouzhou.data.model.btTotal
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +11,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -40,9 +35,10 @@ import java.security.cert.X509Certificate
 /**
  * 宝塔面板的对外接口客户端。
  *
- * 与站点接口最大的三点不同（都是照面板的 `class/bt.py`、`interface.py` 口径实现的）：
+ * 与站点接口最大的三点不同（13.1.0 实测确认）：
  * 1. 鉴权不放在 header 也不放 cookie，而是每次请求现算一个签名塞进表单体里，签名只按**秒**生效；
  * 2. 所有请求都是 `POST application/x-www-form-urlencoded`，路径按模块分（`/system`、`/data`、`/crontab`）；
+ *    没开安全入口时，地址填到端口就行，开了才需要带上入口码那段路径；
  * 3. 失败几乎都是 HTTP 200 + `{"status":false,"msg":…}`，而 `msg` 有时是字符串、有时是数组；
  *    鉴权/白名单没过时更狠，直接回一整页 HTML。
  */
@@ -91,8 +87,17 @@ data class BtRequest(val url: String, val form: Map<String, String>)
 
 data class BtRaw(val status: Int, val contentType: String, val body: String)
 
-/** 一次请求的两种产出：数据位（可能是对象/数组/没有）和给人看的那句 msg。 */
-data class BtReply(val data: JsonElement, val msg: String)
+/**
+ * 一次请求的两种产出：数据位（可能是对象/数组/没有）和给人看的那句 msg。
+ *
+ * `root` 是去掉鉴权信封之前的整个回包。`/data` 把总条数写在 `page` 那串分页 HTML 里，
+ * 和 `data` 平级而不是在里面，只拿 `data` 就永远数不出总条数。
+ */
+data class BtReply(
+    val data: JsonElement,
+    val msg: String,
+    val root: JsonElement = JsonNull
+)
 
 fun interface BtTransport {
     suspend fun execute(request: BtRequest): BtRaw
@@ -165,14 +170,16 @@ class BtPanelApi(
 
     // ── 只读 ──
 
-    suspend fun systemSnapshot(): BtSystemSnapshot =
-        btSystemSnapshot(call(BtModule.System, "GetSystemTotal").data)
+    /**
+     * 看板的三个来源在这里只回原始 JSON，不在这一层翻成人话：
+     * 实测 13.1.0 的 GetSystemTotal 不给负载，负载只在 GetNetWork 里，
+     * 内存/运行时长两边又各给一份，合成一个快照得两个回包一起看。
+     */
+    suspend fun systemTotal(): JsonElement = call(BtModule.System, "GetSystemTotal").data
 
-    suspend fun disks(): List<BtDisk> =
-        btDisks(call(BtModule.System, "GetDiskInfo").data)
+    suspend fun diskInfo(): JsonElement = call(BtModule.System, "GetDiskInfo").data
 
-    suspend fun network(): BtNetwork =
-        btNetwork(call(BtModule.System, "GetNetWork").data)
+    suspend fun networkInfo(): JsonElement = call(BtModule.System, "GetNetWork").data
 
     /** 站点、数据库、面板日志走同一个 `/data` 口，只有 table 不同。 */
     suspend fun table(table: BtTable, page: Int = 1, limit: Int = PageLimit, keyword: String = ""): TablePage {
@@ -189,7 +196,7 @@ class BtPanelApi(
         )
         return TablePage(
             rows = btRows(table, reply.data),
-            total = noline.zhouzhou.data.model.btTotal(reply.data)
+            total = noline.zhouzhou.data.model.btTotal(reply.root)
         )
     }
 
@@ -256,8 +263,8 @@ class BtPanelApi(
     }
 
     /**
-     * 面板给的 status=false 一律抛异常，把它的原文当 message 带出去 —— 我们没有任何实测条件，
-     * 猜翻译只会让人查不到原因。
+     * 面板给的 status=false 一律抛异常，把它的原文当 message 带出去 —— 报错文案各版本差得多，
+     * 猜翻译只会让人查不到原因。实测 13.1.0：这类失败 HTTP 状态码仍是 200，只有 body 里的 status 分得出。
      */
     private fun interpret(raw: BtRaw, action: String): BtReply {
         val body = raw.body
@@ -281,10 +288,10 @@ class BtPanelApi(
                     fromPanel = msg.isNotBlank()
                 )
             }
-            return BtReply(obj["data"] ?: JsonObject(emptyMap()), msg)
+            return BtReply(obj["data"] ?: JsonObject(emptyMap()), msg, obj)
         }
         // GetNetWork 回裸对象、GetCrontab 回裸数组：没有信封就当数据本身。
-        return BtReply(element, "")
+        return BtReply(element, "", element)
     }
 
     private fun readStatus(element: JsonElement?): Boolean? = when (element) {
@@ -306,7 +313,9 @@ class BtPanelApi(
     }
 
     private fun htmlHint(status: Int): String = when (status) {
-        404 -> "宝塔回了一个 404 网页。地址要把安全入口一起填上，形如 https://1.2.3.4:8888/入口码"
+        // 实测：没开安全入口时，地址只填到端口就能通；开了就必须带上入口码那一段路径。
+        404 -> "宝塔回了一个 404 网页。开了「安全入口」的话地址要把入口码一起填上，" +
+            "形如 https://1.2.3.4:8888/入口码；没开就只填到端口即可"
         else -> "宝塔回的是一页网页，不是接口数据。多半是接口总开关没开、本机出口 IP 不在白名单里，" +
             "或者地址填的其实不是面板本体（面板「接口 → API 通信」里都能看）"
     }

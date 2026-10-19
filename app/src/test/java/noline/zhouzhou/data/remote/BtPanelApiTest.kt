@@ -2,6 +2,7 @@ package noline.zhouzhou.data.remote
 
 import noline.zhouzhou.data.model.BtPanelConfig
 import noline.zhouzhou.data.model.BtTable
+import noline.zhouzhou.data.model.btNetwork
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,8 +11,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 宝塔接口层单测。这一轮没有可实测的面板，所以形状全部照面板的接口口径手工构造：
- * 签名算法、模块路由、以及「同一个接口能给四种形状」这件事必须在假响应上先跑通。
+ * 宝塔接口层单测。签名、模块路由、错误分诊这些必须在假响应上钉死；
+ * 真实回包长什么样另有 BtPanelModelsTest，那份照 13.1.0 的实测原文写。
  */
 class BtPanelApiTest {
 
@@ -45,7 +46,7 @@ class BtPanelApiTest {
     @Test
     fun `every request is a form post to the module url with fresh signature`() {
         val transport = Fake { json("""{"status":true,"msg":"","data":{"cpuStatus":"3"}}""") }
-        run(transport) { systemSnapshot() }
+        run(transport) { systemTotal() }
         val call = transport.calls.single()
         assertEquals("https://1.2.3.4:8888/abc/system", call.url)
         assertEquals("1700000000", call.form["request_time"])
@@ -63,7 +64,7 @@ class BtPanelApiTest {
     fun `missing config never reaches the network`() {
         val transport = Fake { json("{}") }
         val error = assertThrows(BtException::class.java) {
-            runBlocking { BtPanelApi(BtPanelConfig(), transport).systemSnapshot() }
+            runBlocking { BtPanelApi(BtPanelConfig(), transport).systemTotal() }
         }
         assertEquals(BtIssue.NoConfig, error.issue)
         assertTrue(transport.calls.isEmpty())
@@ -71,10 +72,10 @@ class BtPanelApiTest {
 
     @Test
     fun `bare object without envelope is data itself`() {
-        val transport = Fake { json("""{"up":"12.5KB","down":"1.2MB","recv_total":"3GB"}""") }
-        val network = run(transport) { network() }
-        assertEquals("12.5KB", network.upText)
-        assertEquals("1.2MB", network.downText)
+        val transport = Fake { json("""{"up":"12.5","down":"1.2","recv_total":"3GB"}""") }
+        val network = btNetwork(run(transport) { networkInfo() })
+        assertEquals("12.5 KB/s", network.upText)
+        assertEquals("1.2 KB/s", network.downText)
         // 认不出的键不能丢：面板版本一多，只有原样带出来才查得出版本差异。
         assertEquals(listOf("累计接收" to "3GB"), network.extras.map { it.label to it.value })
     }
@@ -110,12 +111,26 @@ class BtPanelApiTest {
     }
 
     @Test
+    fun `total count read from the paging html beside data`() {
+        // 13.1.0 实测：/data 不给 records，总条数只写在和 data 平级的 page 那串分页 HTML 里。
+        val transport = Fake {
+            json(
+                """{"status":true,"msg":"","auto_list":false,
+                   "page":"<span class='Pcurrent'>1</span><span class='Pcount'>共11970条</span>",
+                   "data":[{"id":1,"log":"x","type":"API配置"}]}""".trimMargin()
+            )
+        }
+        val page = run(transport) { table(BtTable.Logs) }
+        assertEquals(11970, page.total)
+    }
+
+    @Test
     fun `status false keeps the panel sentence`() {
         val transport = Fake {
             json("""{"status":false,"msg":"当前IP地址[8.8.8.8]不允许使用接口,请检查接口设置!"}""")
         }
         val error = assertThrows(BtException::class.java) {
-            runBlocking { api(transport).disks() }
+            runBlocking { api(transport).diskInfo() }
         }
         assertEquals(BtIssue.IpBlocked, error.issue)
         assertTrue(error.message.contains("不允许使用接口"))
@@ -138,7 +153,7 @@ class BtPanelApiTest {
     fun `status as string zero still counts as failure`() {
         val transport = Fake { json("""{"status":"0","msg":"接口已关闭"}""") }
         val error = assertThrows(BtException::class.java) {
-            runBlocking { api(transport).network() }
+            runBlocking { api(transport).networkInfo() }
         }
         assertEquals(BtIssue.ApiOff, error.issue)
     }
@@ -147,7 +162,7 @@ class BtPanelApiTest {
     fun `html page means the address or the switch is wrong`() {
         val transport = Fake { BtRaw(404, "text/html; charset=utf-8", "<html><body>404</body></html>") }
         val error = assertThrows(BtException::class.java) {
-            runBlocking { api(transport).systemSnapshot() }
+            runBlocking { api(transport).systemTotal() }
         }
         assertEquals(BtIssue.HtmlPage, error.issue)
         assertTrue(error.message.contains("安全入口"))

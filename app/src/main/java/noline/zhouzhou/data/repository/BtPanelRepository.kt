@@ -7,6 +7,10 @@ import noline.zhouzhou.data.model.BtPanelConfig
 import noline.zhouzhou.data.model.BtRow
 import noline.zhouzhou.data.model.BtSystemSnapshot
 import noline.zhouzhou.data.model.BtTable
+import noline.zhouzhou.data.model.btCounts
+import noline.zhouzhou.data.model.btDisks
+import noline.zhouzhou.data.model.btNetwork
+import noline.zhouzhou.data.model.btSystemSnapshot
 import noline.zhouzhou.data.remote.BtException
 import noline.zhouzhou.data.remote.BtIssue
 import noline.zhouzhou.data.remote.BtPanelApi
@@ -69,30 +73,17 @@ class BtPanelRepository(
 
     suspend fun dashboard(): Result<BtDashboard> = runCatching {
         val client = api()
-        val system = client.systemSnapshot()
+        val totalRaw = client.systemTotal()
+        // GetNetWork 一次给齐负载、内存、磁盘、站点计数，所以它单独失败不该让整页看板没数据。
+        val netRaw = runCatching { client.networkInfo() }.getOrNull()
         BtDashboard(
-            system = system,
-            disks = runCatching { client.disks() }.getOrDefault(emptyList()),
-            network = runCatching { client.network() }.getOrNull(),
-            counts = runCatching { client.counts() }.getOrDefault(emptyList()),
+            system = btSystemSnapshot(totalRaw, netRaw),
+            disks = runCatching { btDisks(client.diskInfo()) }.getOrDefault(emptyList()),
+            network = netRaw?.let(::btNetwork),
+            counts = btCounts(totalRaw, netRaw),
             fetchedAt = System.currentTimeMillis()
         )
     }
-
-    /** 计数走各自的表，读不到就不摆这一行——「站点 0 个」和「站点数没读到」是两件事。 */
-    private suspend fun BtPanelApi.counts(): List<BtField> {
-        val sites = runCatching { table(BtTable.Sites) }
-        val databases = runCatching { table(BtTable.Databases) }
-        val tasks = runCatching { crontab() }
-        return listOfNotNull(
-            sites.getOrNull()?.let { BtField("站点", countText(it.total, it.rows.size)) },
-            databases.getOrNull()?.let { BtField("数据库", countText(it.total, it.rows.size)) },
-            tasks.getOrNull()?.let { BtField("计划任务", countText(null, it.size)) }
-        )
-    }
-
-    private fun countText(total: Int?, loaded: Int): String =
-        total?.let { if (it > loaded) "$it（本页 $loaded）" else "$it" } ?: "$loaded"
 
     /** 计划任务那张表有两个来源：/crontab 的裸数组，或 /data 的 table=crontab。这里取前者，因为要拿 id 去执行。 */
     suspend fun load(table: BtTable, page: Int = 1, keyword: String = ""): Result<BtTablePage> = runCatching {

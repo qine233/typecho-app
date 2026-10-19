@@ -232,7 +232,8 @@ private fun ConfigCard(state: BtPanelUiState, viewModel: BtPanelViewModel) {
         Spacer(Modifier.height(4.dp))
         Text(
             "面板「网站 → 接口 / API 通信」里打开总开关，把密钥复制过来。" +
-                "地址要把安全入口一起填全，形如 https://1.2.3.4:8888/入口码。",
+                "地址填到端口就行（https://1.2.3.4:8888）；开了「安全入口」才需要把入口码一起填上" +
+                "（https://1.2.3.4:8888/入口码），漏了会连不上。",
             fontSize = 12.sp,
             color = t.textSecondary,
             lineHeight = 18.sp
@@ -351,6 +352,10 @@ private fun DashboardCard(dashboard: BtDashboard) {
     ) {
         Text("服务器状态", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
         Spacer(Modifier.height(2.dp))
+        if (system.overview.isNotBlank()) {
+            Text(system.overview, fontSize = 11.5.sp, color = t.textSecondary, lineHeight = 17.sp)
+            Spacer(Modifier.height(2.dp))
+        }
         Text(
             "读取于 " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
                 .format(java.util.Date(dashboard.fetchedAt)),
@@ -359,7 +364,7 @@ private fun DashboardCard(dashboard: BtDashboard) {
         )
         Spacer(Modifier.height(12.dp))
 
-        UsageLine("CPU", system.cpuPercent?.let { "${it.toInt()}%" } ?: Missing, fraction(system.cpuPercent))
+        UsageLine("CPU", system.cpuPercent?.let(::percentText) ?: Missing, fraction(system.cpuPercent))
         Spacer(Modifier.height(10.dp))
         UsageLine(
             "内存",
@@ -386,6 +391,18 @@ private fun DashboardCard(dashboard: BtDashboard) {
                     if (net.upText.isNotBlank()) StatPill("上行 ${net.upText}", tint = t.textSecondary)
                     if (net.downText.isNotBlank()) StatPill("下行 ${net.downText}", tint = t.textSecondary)
                 }
+                // 即时速率会一直归零，开机累计才是「这台机器搬了多少数据」的答案。
+                if (net.upTotalText.isNotBlank() || net.downTotalText.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (net.upTotalText.isNotBlank()) {
+                            StatPill("累计上行 ${net.upTotalText}", tint = t.textLight)
+                        }
+                        if (net.downTotalText.isNotBlank()) {
+                            StatPill("累计下行 ${net.downTotalText}", tint = t.textLight)
+                        }
+                    }
+                }
             }
         }
 
@@ -407,7 +424,7 @@ private fun DashboardCard(dashboard: BtDashboard) {
             Spacer(Modifier.height(8.dp))
             dashboard.disks.forEach { disk ->
                 UsageLine(
-                    disk.name,
+                    if (disk.name == "/") "根分区" else disk.name,
                     listOf(
                         disk.totalText.takeIf { it.isNotBlank() }?.let { "共 $it" },
                         disk.usedText.takeIf { it.isNotBlank() }?.let { "用 $it" },
@@ -415,6 +432,14 @@ private fun DashboardCard(dashboard: BtDashboard) {
                     ).filterNotNull().joinToString(" · ").ifBlank { Missing },
                     fraction(disk.usedPercent)
                 )
+                if (disk.detail.isNotBlank()) {
+                    Text(
+                        disk.detail,
+                        fontSize = 10.5.sp,
+                        color = t.textLight,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -716,6 +741,10 @@ private fun fractionOf(used: Double?, total: Double?): Float? {
 
 private fun fraction(percent: Double?): Float? =
     percent?.let { (it / 100).toFloat().coerceIn(0f, 1f) }
+
+/** 面板给的 CPU 是小数（实测 0.5），取整会显示成「0%」，所以一成以下留一位小数。 */
+private fun percentText(percent: Double): String =
+    if (percent < 10) "%.1f%%".format(percent) else "${percent.toInt()}%"
 
 /**
  * 确认门。mustType 为真时必须把关键词一字不差打出来，避免手滑点下去就把服务重启了。
