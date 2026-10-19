@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     appContainer: AppContainer,
     onOpenStorage: () -> Unit,
+    onOpenBtPanel: () -> Unit,
     onLogout: () -> Unit
 ) {
     val viewModel = typechoViewModel<SettingsViewModel>(appContainer) { SettingsViewModel(it) }
@@ -324,6 +325,42 @@ fun SettingsScreen(
                 Spacer(Modifier.height(16.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(16.dp))
+
+                // 服务器运维：宝塔面板只管站主自己的机器，读者侧不摆这个入口。
+                if (uiState.isAdmin) {
+                    SettingsSectionHeader("服务器运维")
+                    Card(
+                        onClick = onOpenBtPanel,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Dns, contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("宝塔面板", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "看 CPU / 内存 / 磁盘，翻站点、数据库和计划任务，" +
+                                        "外加重载服务这类轻操作",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(20.dp))
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(16.dp))
+                }
 
                 SettingsSectionHeader("后台与通知")
                 SettingsSwitchItem(

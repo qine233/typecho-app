@@ -54,6 +54,7 @@ class AppContainer(val application: Application) {
     val cloudreveRepository: CloudreveRepository by lazy {
         CloudreveRepository(cloudreveApi) { settingsRepository.cloudreveConfig.first() }
     }
+    val btPanelRepository: BtPanelRepository by lazy { BtPanelRepository(settingsRepository) }
     val statusRepository: StatusRepository by lazy {
         StatusRepository(
             context = application,

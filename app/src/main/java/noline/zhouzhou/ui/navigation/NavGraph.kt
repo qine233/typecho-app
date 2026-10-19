@@ -33,6 +33,7 @@ import noline.zhouzhou.ui.screens.admin.DuplicatesScreen
 import noline.zhouzhou.ui.screens.admin.PagesScreen
 import noline.zhouzhou.ui.screens.bills.BillReportScreen
 import noline.zhouzhou.ui.screens.bills.BillsScreen
+import noline.zhouzhou.ui.screens.btpanel.BtPanelScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
 import noline.zhouzhou.ui.screens.drive.DriveScreen
 import noline.zhouzhou.ui.screens.drive.ShareScreen
@@ -81,6 +82,8 @@ sealed class Screen(val route: String) {
     data object Duplicates : Screen("admin/duplicates")
     data object Drive : Screen("cloudreve/drive")
     data object Shares : Screen("cloudreve/shares")
+    /** 宝塔面板那一页从设置里进：它管的是服务器，不是站点内容，不该占底部标签。 */
+    data object BtPanel : Screen("settings/btpanel")
 }
 
 private val HomeTab = TabSpec(
@@ -285,6 +288,13 @@ fun TypechoNavHost(
                     )
                 }
 
+                composable(Screen.BtPanel.route) {
+                    BtPanelScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
                 composable(
                     route = Screen.PostDetail.route,
                     arguments = listOf(navArgument("postId") { type = NavType.StringType }),
@@ -407,6 +417,7 @@ fun TypechoNavHost(
                     SettingsScreen(
                         appContainer = appContainer,
                         onOpenStorage = { navController.navigate(Screen.Storage.route) },
+                        onOpenBtPanel = { navController.navigate(Screen.BtPanel.route) },
                         onLogout = {
                             navController.navigate(Screen.Login.route) {
                                 popUpTo(0) { inclusive = true }

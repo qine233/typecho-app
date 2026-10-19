@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import noline.zhouzhou.data.model.BtPanelConfig
 import noline.zhouzhou.data.model.CloudreveConfig
 import noline.zhouzhou.data.model.SiteConfig
 import noline.zhouzhou.data.remote.GithubMirror
@@ -37,6 +38,9 @@ class SettingsRepository(private val context: Context) {
         val CLOUDREVE_SITE = stringPreferencesKey("cloudreve_site")
         val CLOUDREVE_EMAIL = stringPreferencesKey("cloudreve_email")
         val CLOUDREVE_PASSWORD = stringPreferencesKey("cloudreve_password_cipher")
+        val BT_SITE = stringPreferencesKey("bt_site")
+        val BT_KEY = stringPreferencesKey("bt_key_cipher")
+        val BT_TRUST_SELF_SIGNED = booleanPreferencesKey("bt_trust_self_signed")
         val UPDATE_MIRROR = stringPreferencesKey("update_mirror_id")
         val STATUS_NOTIFICATION = booleanPreferencesKey("status_notification")
         val STATUS_AUTO_SYNC = booleanPreferencesKey("status_auto_sync")
@@ -200,7 +204,7 @@ class SettingsRepository(private val context: Context) {
         val normalized = normalizeSite(site)
         require(normalized.isNotBlank()) { "Cloudreve 地址不能为空" }
         require(email.isNotBlank()) { "要填 Cloudreve 的登录邮箱" }
-        val stored = if (password.isBlank()) currentCloudrevePassword() else secretStore.encryptOrThrow(password)
+        val stored = if (password.isBlank()) currentCloudreveCipher() else secretStore.encryptOrThrow(password)
         require(stored.isNotBlank()) { "要填 Cloudreve 的登录密码" }
         context.dataStore.edit { prefs ->
             prefs[Keys.CLOUDREVE_SITE] = normalized
@@ -217,8 +221,54 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    private suspend fun currentCloudrevePassword(): String =
-        context.dataStore.data.map { it[Keys.CLOUDREVE_PASSWORD]?.let(secretStore::decrypt).orEmpty() }.first()
+    private suspend fun currentCloudreveCipher(): String =
+        context.dataStore.data.map { it[Keys.CLOUDREVE_PASSWORD].orEmpty() }.first()
+
+    // ── 宝塔面板 ──
+
+    /** 面板那把密钥等同服务器 root，落盘只存 Keystore 密文，和 NoLine 密钥一个规矩。 */
+    val btConfig: Flow<BtPanelConfig> = context.dataStore.data
+        .map { prefs ->
+            BtPanelConfig(
+                site = prefs[Keys.BT_SITE].orEmpty(),
+                key = prefs[Keys.BT_KEY]?.let(secretStore::decrypt).orEmpty(),
+                trustSelfSigned = prefs[Keys.BT_TRUST_SELF_SIGNED] == true
+            )
+        }
+        .flowOn(Dispatchers.IO)
+
+    val btConfigured: Flow<Boolean> = context.dataStore.data
+        .map { !(it[Keys.BT_SITE].isNullOrBlank()) && !(it[Keys.BT_KEY].isNullOrBlank()) }
+
+    /** 密钥留空 = 沿用已存的，和 Cloudreve 密码一个规矩。 */
+    suspend fun saveBtConfig(site: String, key: String, trustSelfSigned: Boolean) {
+        val normalized = normalizeSite(site)
+        require(normalized.isNotBlank()) { "面板地址不能为空" }
+        // 沿用时要搬的是原来那段密文。解密文再存回去等于把明文塞进密文位，
+        // 下次解不出来，用户只是改了个地址就要重敲密钥。
+        val stored = if (key.isBlank()) currentBtKeyCipher() else secretStore.encryptOrThrow(key.trim())
+        require(stored.isNotBlank()) { "要填面板的接口密钥" }
+        context.dataStore.edit { prefs ->
+            prefs[Keys.BT_SITE] = normalized
+            prefs[Keys.BT_KEY] = stored
+            prefs[Keys.BT_TRUST_SELF_SIGNED] = trustSelfSigned
+        }
+    }
+
+    suspend fun setBtTrustSelfSigned(trust: Boolean) {
+        context.dataStore.edit { it[Keys.BT_TRUST_SELF_SIGNED] = trust }
+    }
+
+    suspend fun clearBtConfig() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(Keys.BT_SITE)
+            prefs.remove(Keys.BT_KEY)
+            prefs.remove(Keys.BT_TRUST_SELF_SIGNED)
+        }
+    }
+
+    private suspend fun currentBtKeyCipher(): String =
+        context.dataStore.data.map { it[Keys.BT_KEY].orEmpty() }.first()
 
     // ── 搜索历史 ──
 
