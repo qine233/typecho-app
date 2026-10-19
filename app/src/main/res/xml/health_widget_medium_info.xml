@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 3×2：两格高约 178dp，塞一行明细会把底部那颗按钮压扁，所以明细只留给 3×3。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:minHeight="110dp"
+    android:minWidth="180dp"
+    android:previewImage="@drawable/widget_preview_health_medium"
+    android:resizeMode="none"
+    android:targetCellHeight="2"
+    android:targetCellWidth="3"
+    android:updatePeriodMillis="1800000"
+    android:description="@string/widget_health_medium_description"
+    android:widgetCategory="home_screen" />

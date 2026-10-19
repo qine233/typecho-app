@@ -11,6 +11,7 @@ import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.data.repository.PreflightError
 import noline.zhouzhou.data.repository.RecordPreflight
 import noline.zhouzhou.data.repository.WriteOutcome
+import noline.zhouzhou.ui.widget.refreshHealthWidget
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -181,6 +182,8 @@ class HealthViewModel(private val container: AppContainer) : ViewModel() {
         }
         // 刚离线记的那一条，通知上不该等到下一轮周期任务才出现
         container.refreshStatusNotice()
+        // 桌面那三张卡片也一样：称完重低头看桌面，数字就得是新的
+        refreshHealthWidget(container.application)
     }
 
     fun consumeToast() = _uiState.update { it.copy(toast = null) }

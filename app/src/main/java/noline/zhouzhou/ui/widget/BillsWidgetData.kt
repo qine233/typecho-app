@@ -45,27 +45,29 @@ data class BillsWidgetData(
 }
 
 /**
- * 桌面选取器里的三种规格。
+ * 桌面选取器里的三种规格，买菜卡和健康卡共用这一份。
  *
- * 规格不只是「排几行流水」——桌面给的高度是格子数算死的（2 格 ≈ 178dp），
+ * 规格不只是「排几行明细」——桌面给的高度是格子数算死的（2 格 ≈ 178dp，3 格 ≈ 421dp），
  * 3×2 里硬塞一行流水会把底部的「记一笔」压扁，所以流水只留给 3×3 那一格。
  * 字号和按钮高度同理，都得跟着格子走，写在枚举里比散在组合过程里好核对。
  */
 enum class WidgetSpec(
     val rows: Int,
+    /** 三格高才多放得下一行小字（健康的 BMI 那行靠它）。 */
+    val tall: Boolean,
     /** 窄卡（2×2）放不下「本月 · 40 笔 · 18/31 天」这种长串，Glance 不会打点，只会裁掉。 */
     val wide: Boolean,
     val amountSp: Float,
     val buttonDp: Int
 ) {
     /** 2×2：本月合计 + 今天 + 记一笔 */
-    Compact(0, false, 24f, 34),
+    Compact(0, false, false, 24f, 34),
 
     /** 3×2：再来一条预算进度和百分比 */
-    Medium(0, true, 26f, 36),
+    Medium(0, false, true, 26f, 36),
 
     /** 3×3：整卡，最近买过的排三行 */
-    Full(3, true, 27f, 38)
+    Full(3, true, true, 27f, 38)
 }
 
 /** 卡片上的一行流水：点它是「再买一次」，所以得带着品名和分类。 */

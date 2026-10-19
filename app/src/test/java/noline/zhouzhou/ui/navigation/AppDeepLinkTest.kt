@@ -18,12 +18,23 @@ class AppDeepLinkTest {
     }
 
     @Test
+    fun `体重卡片那两条落在健康页`() {
+        assertEquals(Screen.Health.route, parseAppLink("nline://health")?.route)
+        assertEquals(false, parseAppLink("nline://health")?.openAdd)
+        // 那颗「记体重」要多走一步：进去当场把录入面板拉开
+        assertEquals(AppLink(Screen.Health.route, openAdd = true), parseAppLink("nline://health/add"))
+        // 带 /add 的旧链接不该被当成记账面板的预填
+        assertNull(parseAppLink("nline://health/add")?.prefill)
+    }
+
+    @Test
     fun `空串和认不出的链接都不该跳任何页`() {
         assertNull(parseAppLink(null))
         assertNull(parseAppLink(""))
         assertNull(parseAppLink("   "))
         assertNull(parseAppLink("https://www.zhouzhou.work"))
         assertNull(parseAppLink("nline://bills/delete-all"))
+        assertNull(parseAppLink("nline://health/add-all"))
     }
 
     @Test

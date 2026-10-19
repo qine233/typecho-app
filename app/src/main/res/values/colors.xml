@@ -9,4 +9,6 @@
     <color name="widget_preview_text">#363636</color>
     <color name="widget_preview_faint">#B6BAC9</color>
     <color name="widget_preview_track">#E9ECF5</color>
+    <!-- 健康那三张示意图里「往下走」的那支绿，和主题令牌 healthNormal 同色 -->
+    <color name="widget_preview_down">#2F7A44</color>
 </resources>

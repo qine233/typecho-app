@@ -150,13 +150,19 @@ fun TypechoNavHost(
         }
     }
 
-    // 通知点进来落在「数据与存储」，超支那句落在记账页，小组件那半张表单落在记账面板。
+    // 通知点进来落在「数据与存储」，超支那句落在记账页，小组件那半张表单落在记账面板，
+    // 「记体重」落在健康页并当场拉开录入面板。
     // 放在 loggedIn 解析之后，是为了等图建好，否则 navigate 会打在一个还不存在的路由上。
     var billsPrefill by remember { mutableStateOf<BillPrefill?>(null) }
+    var healthAdd by remember { mutableStateOf(false) }
     LaunchedEffect(deepLink) {
         val parsed = parseAppLink(deepLink) ?: return@LaunchedEffect
         billsPrefill = parsed.prefill
-        navController.navigate(parsed.route) { launchSingleTop = true }
+        healthAdd = parsed.openAdd
+        // 落点是底部那几个标签之一时走 switchTab，弹栈形状要和用户亲手点那一下一致；
+        // 直接 navigate 会把健康页压在当前标签之上，回头切标签就对不上。
+        if (parsed.route in tabs.map { it.route }) switchTab(parsed.route)
+        else navController.navigate(parsed.route) { launchSingleTop = true }
         onDeepLinkShown()
     }
 
@@ -241,7 +247,9 @@ fun TypechoNavHost(
                     HealthScreen(
                         appContainer = appContainer,
                         onOpenSettings = { switchTab(Screen.Settings.route) },
-                        onOpenBills = { navController.navigate(Screen.Bills.route) }
+                        onOpenBills = { navController.navigate(Screen.Bills.route) },
+                        initialAdd = healthAdd,
+                        onPrefillConsumed = { healthAdd = false }
                     )
                 }
 

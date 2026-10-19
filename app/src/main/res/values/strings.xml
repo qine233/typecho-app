@@ -141,6 +141,14 @@
     <string name="widget_bills_compact_label">买菜记账 · 2×2</string>
     <string name="widget_bills_compact_description">本月合计与今天花销，直接记一笔</string>
 
+    <!-- 桌面小组件：健康体重，同样三格 -->
+    <string name="widget_health_label">健康体重 · 3×3</string>
+    <string name="widget_health_description">当前体重、目标进度、7/30/90 天各减了多少，外加一颗记体重</string>
+    <string name="widget_health_medium_label">健康体重 · 3×2</string>
+    <string name="widget_health_medium_description">当前体重、涨跌和目标进度，外加一颗记体重</string>
+    <string name="widget_health_compact_label">健康体重 · 2×2</string>
+    <string name="widget_health_compact_description">当前体重与目标进度，直接记体重</string>
+
     <!-- Cloudreve 分享 -->
     <string name="share_title">分享管理</string>
     <string name="share_create">创建分享</string>

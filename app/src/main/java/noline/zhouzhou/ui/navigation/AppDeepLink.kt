@@ -12,10 +12,17 @@ import noline.zhouzhou.data.sync.StatusNotifier
 data class BillPrefill(val title: String = "", val kind: String = "")
 
 /** 一条深链解析出来的落点。 */
-data class AppLink(val route: String, val prefill: BillPrefill? = null)
+data class AppLink(
+    val route: String,
+    val prefill: BillPrefill? = null,
+    /** 健康卡片那颗「记体重」：进去要把录入面板拉开，而不是只落在页面上。 */
+    val openAdd: Boolean = false
+)
 
 object AppLinks {
     const val BILLS_ADD = "nline://bills/add"
+    const val HEALTH = "nline://health"
+    const val HEALTH_ADD = "nline://health/add"
 
     fun billsAdd(title: String = "", kind: String = ""): String {
         val query = listOfNotNull(
@@ -31,6 +38,8 @@ fun parseAppLink(link: String?): AppLink? {
     return when {
         raw == StatusNotifier.DEEP_LINK -> AppLink(Screen.Storage.route)
         raw == StatusNotifier.DEEP_LINK_BILLS -> AppLink(Screen.Bills.route)
+        raw == AppLinks.HEALTH -> AppLink(Screen.Health.route)
+        raw == AppLinks.HEALTH_ADD -> AppLink(Screen.Health.route, openAdd = true)
         raw == AppLinks.BILLS_ADD || raw.startsWith("${AppLinks.BILLS_ADD}?") ->
             AppLink(Screen.Bills.route, prefill = prefillFromQuery(raw.substringAfter('?', "")))
         else -> null

@@ -35,6 +35,8 @@ import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.model.ChangeInfo
 import noline.zhouzhou.data.model.HealthOverview
 import noline.zhouzhou.data.model.HealthRecord
+import noline.zhouzhou.data.model.goalProgress
+import noline.zhouzhou.data.model.goalProgressLabel
 import noline.zhouzhou.data.remote.NolineIssue
 import noline.zhouzhou.ui.components.GlassTopBar
 import noline.zhouzhou.ui.components.NolineGuide
@@ -49,7 +51,10 @@ import kotlinx.coroutines.delay
 fun HealthScreen(
     appContainer: AppContainer,
     onOpenSettings: () -> Unit,
-    onOpenBills: () -> Unit
+    onOpenBills: () -> Unit,
+    /** 桌面卡片那颗「记体重」带进来的：落页面顺手把录入面板拉开。 */
+    initialAdd: Boolean = false,
+    onPrefillConsumed: () -> Unit = {}
 ) {
     val viewModel = typechoViewModel<HealthViewModel>(appContainer) { HealthViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -57,6 +62,14 @@ fun HealthScreen(
     var sheetFor by remember { mutableStateOf<HealthRecord?>(null) }
     var showNewSheet by remember { mutableStateOf(false) }
     var toast by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(initialAdd) {
+        if (initialAdd) {
+            showNewSheet = true
+            // 交还掉，连着点同一颗按钮时深链值没变，效果才不会只跑一次。
+            onPrefillConsumed()
+        }
+    }
 
     LaunchedEffect(state.toast) {
         state.toast?.let {
@@ -300,18 +313,12 @@ private fun GoalCard(overview: HealthOverview) {
                     )
                 }
                 Spacer(Modifier.height(10.dp))
-                val start = overview.series.firstOrNull()?.weight ?: goal.target
-                val progress = if (start <= goal.target) 1f
-                else ((start - (overview.latest?.weight ?: start)) / (start - goal.target))
-                    .coerceIn(0.0, 1.0).toFloat()
+                // 进度算法和桌面卡片共用一个函数，两边说的必须是同一个数
+                val progress = goalProgress(overview)
                 GoalBar(progress)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    when {
-                        goal.done -> "已经到了，守住它"
-                        progress <= 0f -> "刚起头，先记满几天再说"
-                        else -> "已经走完了 ${((progress * 100).toInt()).coerceIn(1, 99)}%"
-                    },
+                    goalProgressLabel(progress, goal.done),
                     fontSize = 11.5.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )

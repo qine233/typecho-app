@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 健康 3×2 那张：体重、涨跌、目标进度和按钮，没有底下那三行。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="150dp"
+    android:height="100dp"
+    android:viewportWidth="150"
+    android:viewportHeight="100">
+    <path
+        android:fillColor="@color/widget_card_bg"
+        android:pathData="M20,0 H130 A20,20 0 0 1 150,20 V80 A20,20 0 0 1 130,100 H20 A20,20 0 0 1 0,80 V20 A20,20 0 0 1 20,0 Z" />
+    <path
+        android:fillColor="@color/widget_preview_faint"
+        android:pathData="M16,11 h34 v9 h-34 z" />
+    <path
+        android:fillColor="@color/widget_preview_text"
+        android:pathData="M16,26 h50 v20 h-50 z" />
+    <path
+        android:fillColor="@color/widget_preview_down"
+        android:pathData="M98,35 h36 v10 h-36 z" />
+    <path
+        android:fillColor="@color/widget_preview_track"
+        android:pathData="M16,54 h118 a6,6 0 0 1 0,12 h-118 a6,6 0 0 1 0,-12 z" />
+    <path
+        android:fillColor="@color/widget_primary_bg"
+        android:pathData="M16,54 h62 a6,6 0 0 1 0,12 h-62 a6,6 0 0 1 0,-12 z" />
+    <path
+        android:fillColor="@color/widget_primary_bg"
+        android:pathData="M26,72 h98 a10,10 0 0 1 0,20 h-98 a10,10 0 0 1 0,-20 z" />
+</vector>

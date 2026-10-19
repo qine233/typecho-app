@@ -94,6 +94,39 @@ data class GoalInfo(
         }
 }
 
+/**
+ * 目标进度：把「第一条记录 → 现在」这一段除以「第一条记录 → 目标」那一段。
+ * 起点已经在目标之下（或正好相等）算走完了。
+ *
+ * 概览页的目标卡和桌面卡片都调它，两边才不会一个说 62%、另一个说 63%。
+ */
+fun goalProgress(overview: HealthOverview): Float {
+    val goal = overview.goal ?: return 0f
+    val start = overview.series.firstOrNull()?.weight ?: goal.target
+    if (start <= goal.target) return 1f
+    val now = overview.latest?.weight ?: start
+    return ((start - now) / (start - goal.target)).coerceIn(0.0, 1.0).toFloat()
+}
+
+/** 进度写成一句话的说法（概览页）。 */
+fun goalProgressLabel(progress: Float, done: Boolean): String = when {
+    done -> "已经到了，守住它"
+    progress <= 0f -> "刚起头，先记满几天再说"
+    else -> "已经走完了 ${percentOfGoal(progress)}%"
+}
+
+/** 进度写成两个字符的说法（桌面卡片右侧那一栏）。 */
+fun goalPercentText(progress: Float, done: Boolean): String =
+    when {
+        done -> "100%"
+        progress <= 0f -> "0%"
+        else -> "${percentOfGoal(progress)}%"
+    }
+
+/** 半路上不说 0% 也不说 100%，那两头都有进度条在画着。 */
+private fun percentOfGoal(progress: Float): Int =
+    ((progress * 100).toInt()).coerceIn(1, 99)
+
 @Serializable
 data class ChangeInfo(
     val span: Int = 0,

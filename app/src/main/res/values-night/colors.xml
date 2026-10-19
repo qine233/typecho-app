@@ -6,4 +6,5 @@
     <color name="widget_preview_text">#F7F7FA</color>
     <color name="widget_preview_faint">#6E7280</color>
     <color name="widget_preview_track">#33353B</color>
+    <color name="widget_preview_down">#6EC389</color>
 </resources>

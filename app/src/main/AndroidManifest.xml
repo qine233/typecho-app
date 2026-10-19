@@ -71,6 +71,41 @@
                 android:resource="@xml/bills_widget_compact_info" />
         </receiver>
 
+        <!-- 健康体重同样三格规格，选取器里和买菜卡并排摆 -->
+        <receiver
+            android:name=".ui.widget.HealthWidgetReceiver"
+            android:exported="false"
+            android:label="@string/widget_health_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/health_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".ui.widget.HealthWidgetMediumReceiver"
+            android:exported="false"
+            android:label="@string/widget_health_medium_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/health_widget_medium_info" />
+        </receiver>
+        <receiver
+            android:name=".ui.widget.HealthWidgetCompactReceiver"
+            android:exported="false"
+            android:label="@string/widget_health_compact_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/health_widget_compact_info" />
+        </receiver>
+
         <!-- 更新包落在 cacheDir/updates，安装器是另一个进程，只能经 FileProvider 给 URI -->
         <provider
             android:name="androidx.core.content.FileProvider"
