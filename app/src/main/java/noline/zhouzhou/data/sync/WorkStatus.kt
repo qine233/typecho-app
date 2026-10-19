@@ -11,7 +11,7 @@ data class WorkStatus(
     val drafts: Int = 0,
     val lastFlushAt: Long = 0L,
     val lastFlushNote: String = "",
-    /** 本月超支的那句话，由记账那边算好传进来；空串表示没设预算或还没超。 */
+    /** 超支的那句话，由记账那边按预算周期算好传进来；空串表示没设预算或还没超。 */
     val budgetAlert: String = ""
 ) {
     val pendingTotal: Int get() = pendingHealth + pendingBills
@@ -39,7 +39,7 @@ data class WorkStatus(
             if (lastFlushAt > 0L) add(if (lastFlushNote.isBlank()) "上次补交 $timeText" else "上次补交 $timeText · $lastFlushNote")
         }
         return parts.joinToString(" · ").ifBlank {
-            if (budgetAlert.isNotBlank()) "点开看看这个月哪类超了" else "队列是空的"
+            if (budgetAlert.isNotBlank()) "点开看看哪几类超了" else "队列是空的"
         }
     }
 }

@@ -2,6 +2,7 @@ package noline.zhouzhou.ui.widget
 
 import noline.zhouzhou.data.model.BillAggregate
 import noline.zhouzhou.data.model.BillBudget
+import noline.zhouzhou.data.model.BillBudgetPeriod
 import noline.zhouzhou.data.model.BillDayGroup
 import noline.zhouzhou.data.model.BillInput
 import noline.zhouzhou.data.model.BillRecord
@@ -39,7 +40,7 @@ class BillsWidgetDataTest {
         configured: Boolean = true,
         data: BillsOverview? = overview,
         spent: Double = 1200.0,
-        budget: BillBudget = BillBudget(monthly = 2000.0),
+        budget: BillBudget = BillBudget(limit = 2000.0),
         kindSpent: Map<String, Double> = emptyMap(),
         pending: List<PendingBill> = emptyList(),
         hints: List<TitleHint> = emptyList(),
@@ -144,6 +145,18 @@ class BillsWidgetDataTest {
 
     @Test
     fun `没超就写还剩多少`() {
+        assertEquals("还剩 775.00", build(spent = 1225.0).budgetText)
+    }
+
+    @Test
+    fun `预算按周或按年设时卡片得改口`() {
+        // 卡片上面那行永远是「本月」，不加前缀这句话会被读成这个月还剩 775。
+        val weekly = build(budget = BillBudget(period = BillBudgetPeriod.Week, limit = 200.0), spent = 120.0)
+        assertEquals("本周还剩 80.00", weekly.budgetText)
+        val yearly = build(budget = BillBudget(period = BillBudgetPeriod.Year, limit = 9000.0), spent = 9025.0)
+        assertEquals("本年超了 25.00", yearly.budgetText)
+        assertTrue(yearly.over)
+        // 每月那一档不加前缀，和卡片上面那行是同一个口径。
         assertEquals("还剩 775.00", build(spent = 1225.0).budgetText)
     }
 

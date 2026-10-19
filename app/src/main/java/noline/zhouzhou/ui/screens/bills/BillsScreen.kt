@@ -1,6 +1,9 @@
 package noline.zhouzhou.ui.screens.bills
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -180,11 +183,11 @@ fun BillsScreen(
                         PeriodRow(overview)
                         Spacer(Modifier.height(12.dp))
                     }
-                    // 预算卡在本月那一格里，超没超都得一眼看得见，不用点进报告才知道。
+                    // 预算卡跟着它自己设的周期走：设成每周就量本周，概览页这里永远是「当期」。
                     BudgetCard(
                         status = state.budgetStatus,
                         currency = overview.currency,
-                        subject = "本月",
+                        subject = state.budgetStatus.budget.subject,
                         onEdit = { showBudgetSheet = true }
                     )
                     if (overview.count > 0) {
@@ -229,6 +232,7 @@ fun BillsScreen(
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
                                 .clip(RoundedCornerShape(999.dp))
+                                .background(LocalAccent.current.copy(alpha = 0.10f))
                                 .clickable(enabled = !state.detailLoading) { viewModel.toggleExpanded() }
                                 .padding(horizontal = 14.dp, vertical = 7.dp)
                         )
@@ -241,6 +245,7 @@ fun BillsScreen(
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
                                 .clip(RoundedCornerShape(999.dp))
+                                .background(t.surfaceSunken)
                                 .clickable {
                                     viewModel.setFilter("")
                                     viewModel.toggleExpanded()
@@ -353,6 +358,7 @@ private fun MonthHeroCard(overview: BillsOverview) {
                 moneyText(month?.amount ?: 0.0, overview),
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
+                style = moneyStyle(),
                 color = t.textStrong
             )
             Spacer(Modifier.weight(1f))
@@ -413,6 +419,7 @@ private fun PeriodCell(
             if (agg == null || agg.count == 0) "—" else moneyShort(agg.amount, overview),
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
+            style = moneyStyle(),
             color = t.textStrong
         )
         Spacer(Modifier.height(3.dp))
@@ -608,25 +615,12 @@ private fun KindShareCard(overview: BillsOverview) {
                     color = t.textMain,
                     modifier = Modifier.width(58.dp)
                 )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(7.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(t.surfaceSunken)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(stat.share.toFloat().coerceIn(0f, 1f))
-                            .height(7.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(LocalAccent.current.copy(alpha = 0.75f))
-                    )
-                }
+                ShareBar(stat.share)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "${(stat.share * 100).roundToInt()}%",
                     fontSize = 11.sp,
+                    style = moneyStyle(),
                     color = t.textSecondary,
                     modifier = Modifier.width(34.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.End
@@ -634,6 +628,7 @@ private fun KindShareCard(overview: BillsOverview) {
                 Text(
                     moneyText(stat.amount, overview),
                     fontSize = 11.5.sp,
+                    style = moneyStyle(),
                     color = t.textStrong,
                     modifier = Modifier.width(60.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.End
@@ -641,6 +636,31 @@ private fun KindShareCard(overview: BillsOverview) {
             }
             Spacer(Modifier.height(7.dp))
         }
+    }
+}
+
+/** 占比条：进场时从左边长出来，比一排直接画好的灰条暖一点。 */
+@Composable
+private fun RowScope.ShareBar(share: Double) {
+    val t = LocalNoLine.current
+    val grown by animateFloatAsState(
+        share.toFloat().coerceIn(0f, 1f),
+        tween(durationMillis = 520, easing = FastOutSlowInEasing)
+    )
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .height(7.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(t.surfaceSunken)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(grown)
+                .height(7.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(LocalAccent.current.copy(alpha = 0.75f))
+        )
     }
 }
 
@@ -699,6 +719,7 @@ private fun BillDayBlock(day: BillDayUi, overview: BillsOverview, onClick: (Bill
                 moneyText(day.amount, overview),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
+                style = moneyStyle(),
                 color = t.textMain
             )
         }
@@ -773,6 +794,7 @@ private fun BillRowItem(row: BillRowUi, overview: BillsOverview, onClick: () -> 
             moneyText(record.amount, overview),
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
+            style = moneyStyle(),
             color = if (row.pending) t.textSecondary else t.textStrong
         )
     }

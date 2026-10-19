@@ -71,7 +71,7 @@ class WorkStatusTest {
         // 标题已经是它了，正文就别再念一遍。
         val bare = WorkStatus(budgetAlert = over).detail("")
         assertTrue(bare, !bare.contains(over))
-        assertEquals("点开看看这个月哪类超了", bare)
+        assertEquals("点开看看哪几类超了", bare)
     }
 
     @Test

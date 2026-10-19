@@ -1,11 +1,23 @@
 package noline.zhouzhou.ui.screens.bills
 
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.TextStyle
 import noline.zhouzhou.data.model.BillsOverview
 
 /**
  * 记账页共用的文案。概览页和月报页得长成同一张脸，
  * 而月报页手上只有货币代码、没有整个 overview，所以按 currency 字符串收口。
  */
+
+/**
+ * 金额用的文字样式：只加等宽数字，其余全照当前的 LocalTextStyle。
+ *
+ * 一屏几十笔金额右端对齐，Roboto 的比例数字里「1」比「8」窄，钱数那一列会看成锯齿；
+ * 记一笔之后数字跳动，宽度还会让整行左右抖一下。
+ */
+@Composable
+internal fun moneyStyle(): TextStyle = LocalTextStyle.current.copy(fontFeatureSettings = "tnum")
 
 internal fun symbolOf(currency: String): String = when (currency.uppercase()) {
     "CNY", "RMB" -> "¥"

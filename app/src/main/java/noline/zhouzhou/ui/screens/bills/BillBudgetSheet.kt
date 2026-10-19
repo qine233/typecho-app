@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import noline.zhouzhou.data.model.BillBudget
+import noline.zhouzhou.data.model.BillBudgetPeriod
 import noline.zhouzhou.data.model.BillKind
 import noline.zhouzhou.data.model.parseBillBudgetText
 import noline.zhouzhou.ui.theme.LocalAccent
@@ -24,7 +25,7 @@ import noline.zhouzhou.ui.theme.LocalNoLine
 
 /**
  * 设预算。它是本机的一个数，不发给站点，所以这里没有任何「同步」的话——
- * 存完立刻生效：记账页的进度条和常驻通知那句超支提醒都读它。
+ * 存完立刻生效：记账页的进度条、桌面卡片和常驻通知那句超支提醒都读它。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,7 +36,8 @@ fun BillBudgetSheet(
     onSave: (BillBudget) -> Unit
 ) {
     val t = LocalNoLine.current
-    var monthly by remember { mutableStateOf(budgetText(initial.monthly)) }
+    var period by remember { mutableStateOf(initial.period) }
+    var limit by remember { mutableStateOf(budgetText(initial.limit)) }
     var perKind by remember { mutableStateOf(initial.perKind.mapValues { budgetText(it.value) }) }
     var showKinds by remember { mutableStateOf(initial.perKind.isNotEmpty()) }
     var localError by remember { mutableStateOf<String?>(null) }
@@ -51,7 +53,7 @@ fun BillBudgetSheet(
                 // 分类预算展开后这页比屏幕还高，滚到底时「存下」会压在全面屏手势条底下点不动。
                 .navigationBarsPadding()
         ) {
-            Text("每月买菜预算", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = t.textStrong)
+            Text("买菜预算", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = t.textStrong)
             Spacer(Modifier.height(4.dp))
             Text(
                 "只存在这台手机里。超了会在常驻通知上提醒一句，不响",
@@ -60,17 +62,54 @@ fun BillBudgetSheet(
             )
 
             Spacer(Modifier.height(14.dp))
-            Text("总预算（${currencyLabel(currency)}）", fontSize = 12.5.sp, color = t.textSecondary)
+            Text("按哪个周期算", fontSize = 12.5.sp, color = t.textSecondary)
+            Spacer(Modifier.height(7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BillBudgetPeriod.entries.forEach { option ->
+                    val selected = option == period
+                    Text(
+                        option.label,
+                        fontSize = 13.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) Color.White else t.textSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(
+                                if (selected) LocalAccent.current else t.surfaceSunken
+                            )
+                            .clickable {
+                                period = option
+                                localError = null
+                            }
+                            .padding(horizontal = 16.dp, vertical = 7.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                when (period) {
+                    // 说清楚是按自然周/自然年，不然会让人以为「每周 200」能从任意一天起算。
+                    BillBudgetPeriod.Week -> "从本周的周一算到周日"
+                    BillBudgetPeriod.Month -> "从本月 1 号算到月末"
+                    BillBudgetPeriod.Year -> "从 1 月 1 号算到年末，管一整年"
+                },
+                fontSize = 10.5.sp,
+                color = t.textLight
+            )
+
+            Spacer(Modifier.height(14.dp))
+            Text("${period.label}总预算（${currencyLabel(currency)}）", fontSize = 12.5.sp, color = t.textSecondary)
             Spacer(Modifier.height(7.dp))
             BillField(
-                value = monthly,
+                value = limit,
                 onValueChange = {
                     if (it.length <= 10) {
-                        monthly = it
+                        limit = it
                         localError = null
                     }
                 },
-                placeholder = "比如 800，留空就是不设预算",
+                placeholder = if (period == BillBudgetPeriod.Week) "比如 200，留空就是不设预算"
+                else "比如 800，留空就是不设预算",
                 keyboardType = KeyboardType.Decimal,
                 error = localError
             )
@@ -90,6 +129,15 @@ fun BillBudgetSheet(
             }
 
             if (showKinds) {
+                if (period != BillBudgetPeriod.Month) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "分类额度只有「每月」这一档能算进度，现在设了要切回每月才看得见",
+                        fontSize = 10.5.sp,
+                        color = t.textLight,
+                        lineHeight = 16.sp
+                    )
+                }
                 Spacer(Modifier.height(6.dp))
                 BillKind.Codes.forEach { code ->
                     Row(
@@ -147,7 +195,7 @@ fun BillBudgetSheet(
                         .clip(RoundedCornerShape(999.dp))
                         .background(LocalAccent.current)
                         .clickable {
-                            val m = parseBillBudgetText(monthly)
+                            val m = parseBillBudgetText(limit)
                             val kinds = perKind.mapValues { (_, text) -> parseBillBudgetText(text) }
                             localError = when {
                                 m == null -> "总预算得是个数字，或者留空"
@@ -157,7 +205,8 @@ fun BillBudgetSheet(
                             if (localError == null) {
                                 onSave(
                                     BillBudget(
-                                        monthly = m ?: 0.0,
+                                        period = period,
+                                        limit = m ?: 0.0,
                                         perKind = perKind.mapNotNull { (code, text) ->
                                             parseBillBudgetText(text)?.takeIf { v -> v > 0 }?.let { code to it }
                                         }.toMap()

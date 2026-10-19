@@ -2,6 +2,7 @@ package noline.zhouzhou.data.repository
 
 import noline.zhouzhou.data.model.BillAggregate
 import noline.zhouzhou.data.model.BillBudget
+import noline.zhouzhou.data.model.BillBudgetPeriod
 import noline.zhouzhou.data.model.BillBudgetStatus
 import noline.zhouzhou.data.model.BillInput
 import noline.zhouzhou.data.model.BillKind
@@ -11,7 +12,10 @@ import noline.zhouzhou.data.model.BillRecordsPage
 import noline.zhouzhou.data.model.BillUpdate
 import noline.zhouzhou.data.model.BillsOverview
 import noline.zhouzhou.data.model.billBudgetStatus
+import noline.zhouzhou.data.model.billDateInPeriod
 import noline.zhouzhou.data.model.billMonthRange
+import noline.zhouzhou.data.model.billPeriodRange
+import noline.zhouzhou.data.model.billRangeProgress
 import noline.zhouzhou.data.model.buildBillMonthReport
 import noline.zhouzhou.data.remote.NolineApi
 import noline.zhouzhou.data.remote.NolineException
@@ -180,27 +184,49 @@ class BillsRepository(
     suspend fun saveBudget(budget: BillBudget) = store.saveBudget(budget.normalized())
 
     /**
-     * 当月已花 vs 预算。通知和记账页共用这一份算法，别两处各算一遍。
+     * 这一期已花 vs 预算。通知、记账页和桌面卡片共用这一份算法，别三处各算一遍。
      *
-     * 底数是服务器算好的本月，再加上队列里还没上传的新增——离线记的那几笔也是花掉的钱。
+     * 底数是服务器按同一口径切好的 `week` / `month` / `year`，再加上队列里还没上传的新增——
+     * 离线记的那几笔也是花掉的钱。日期一律以服务器那句 `span.today` 为准，
+     * 手机的表不准或者跨了时区，本期边界就会和接口切出来的差一天。
      */
     suspend fun currentBudgetStatus(): BillBudgetStatus {
         val budget = store.loadBudget()
         if (!budget.active) return BillBudgetStatus(budget)
 
         val overview = store.loadOverview()
-        val serverToday = overview?.span?.today.orEmpty()
-        val month = (if (serverToday.length >= 7) serverToday else RecordPreflight.today()).take(7)
+        val today = overview?.span?.today?.takeIf { it.length >= 10 } ?: RecordPreflight.today()
+        val range = billPeriodRange(budget.period, today)
+        val server = when (budget.period) {
+            BillBudgetPeriod.Week -> overview?.week
+            BillBudgetPeriod.Month -> overview?.month
+            BillBudgetPeriod.Year -> overview?.year
+        }
 
-        val kindSpent = (overview?.kindsMonth?.associate { it.kind to it.amount } ?: emptyMap()).toMutableMap()
-        var spent = overview?.month?.amount ?: 0.0
+        // 缓存可能是上个周期抓的：跨了月还拿 `month` 当底数，会把上个月的钱算进这个月。
+        // 那种情况退回「近几日流水里落在本期的那几笔」——宁可少算，也不能拿别的周期的数装进度。
+        // 接口没给区间起点的老缓存只能信它，判不了就别多此一举。
+        val fresh = server != null && (server.start.isBlank() || server.start == range.first)
+        var spent = if (fresh) server?.amount ?: 0.0 else overview?.byDate.orEmpty()
+            .filter { billDateInPeriod(it.date, range) }.sumOf { it.amount }
+        // 分类进度只有本月那一份聚合（kinds_month），底数不是本期时它同样不可信。
+        val kindSpent = if (fresh && budget.kindsVisible)
+            (overview?.kindsMonth?.associate { it.kind to it.amount } ?: emptyMap()).toMutableMap()
+        else mutableMapOf<String, Double>()
+
         store.loadQueue().ops.unsentAdds().forEach { row ->
-            if (row.date.take(7) != month) return@forEach
+            if (!billDateInPeriod(row.date, range)) return@forEach
             val kind = BillKind.normalize(row.kind)
             spent += row.amount
             kindSpent[kind] = (kindSpent[kind] ?: 0.0) + row.amount
         }
-        return billBudgetStatus(budget, spent, kindSpent)
+        return billBudgetStatus(
+            budget = budget,
+            spent = spent,
+            kindSpent = kindSpent,
+            elapsed = billRangeProgress(range.first, range.second, today),
+            partialBase = !fresh
+        )
     }
 
     /** 一次买多样就一次提交：POST 是批量新增，别为三样菜发三个请求。 */

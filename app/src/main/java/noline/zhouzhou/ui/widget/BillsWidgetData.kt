@@ -1,5 +1,6 @@
 package noline.zhouzhou.ui.widget
 
+import noline.zhouzhou.data.model.BillBudgetPeriod
 import noline.zhouzhou.data.model.BillBudgetStatus
 import noline.zhouzhou.data.model.BillKind
 import noline.zhouzhou.data.model.BillRecord
@@ -99,7 +100,7 @@ fun buildBillsWidgetData(
         unsent.filter { it.date == today }.sumOf { it.amount }
 
     val monthCount = overview?.month?.count ?: 0
-    val hasBar = status.budget.hasMonthly
+    val hasBar = status.budget.hasLimit
     val empty = overview == null
 
     return BillsWidgetData(
@@ -131,12 +132,15 @@ internal fun slashDate(date: String): String =
 private fun budgetText(status: BillBudgetStatus): String {
     if (!status.active) return "没设预算"
     val head = when {
-        !status.budget.hasMonthly -> "只设了分类预算"
-        status.monthlyOver -> "超了 ${moneyPlain(status.monthlyOverBy)}"
-        else -> "还剩 ${moneyPlain(status.monthlyLeft)}"
+        !status.budget.hasLimit -> "只设了分类预算"
+        status.over -> "超了 ${moneyPlain(status.overBy)}"
+        else -> "还剩 ${moneyPlain(status.left)}"
     }
+    // 卡片上面那行写的是「本月」，预算要是按周/按年设的，得在这儿改口，不然读成「本月还剩」。
+    val period = if (status.budget.period == BillBudgetPeriod.Month || !status.budget.hasLimit) ""
+    else status.budget.subject
     val overKind = status.kindsOver.firstOrNull()?.let { "${it.label}超了" } ?: ""
-    return if (overKind.isEmpty()) head else "$head · $overKind"
+    return "$period$head" + if (overKind.isEmpty()) "" else " · $overKind"
 }
 
 /**

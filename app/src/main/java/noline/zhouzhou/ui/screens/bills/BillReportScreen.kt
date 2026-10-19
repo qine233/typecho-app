@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.model.BillDayBar
+import noline.zhouzhou.data.model.BillBudgetPeriod
 import noline.zhouzhou.data.model.BillKind
 import noline.zhouzhou.data.model.BillMonthReport
 import noline.zhouzhou.data.remote.NolineIssue
@@ -142,13 +143,17 @@ fun BillReportScreen(
                 ReportHero(state, report)
                 Spacer(Modifier.height(10.dp))
                 if (report.count > 0) {
-                    BudgetCard(
-                        status = state.budgetStatus,
-                        currency = state.currency,
-                        subject = if (state.isCurrentMonth) "本月" else monthTitle(report.month),
-                        onEdit = { showBudgetSheet = true }
-                    )
-                    Spacer(Modifier.height(12.dp))
+                    // 只有「每月」那一档的预算能拿来量一个月；设成每周/每年时这里没有可比的东西，
+                    // 与其画一条会骗人的进度条，不如整张卡不出现（改预算在记账首页照样能点）。
+                    if (state.budgetStatus.budget.period == BillBudgetPeriod.Month) {
+                        BudgetCard(
+                            status = state.budgetStatus,
+                            currency = state.currency,
+                            subject = if (state.isCurrentMonth) "本月" else monthLabel(report.month),
+                            onEdit = { showBudgetSheet = true }
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
                     DayBarsCard(report, state.currency)
                     Spacer(Modifier.height(12.dp))
                     ReportKindsCard(report, state.currency)
