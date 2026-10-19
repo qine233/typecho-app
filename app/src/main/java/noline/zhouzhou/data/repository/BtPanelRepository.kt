@@ -1,15 +1,18 @@
 package noline.zhouzhou.data.repository
 
 import noline.zhouzhou.data.model.BtDisk
+import noline.zhouzhou.data.model.BtEndpoint
 import noline.zhouzhou.data.model.BtField
 import noline.zhouzhou.data.model.BtNetwork
 import noline.zhouzhou.data.model.BtPanelConfig
+import noline.zhouzhou.data.model.BtResultView
 import noline.zhouzhou.data.model.BtRow
 import noline.zhouzhou.data.model.BtSystemSnapshot
 import noline.zhouzhou.data.model.BtTable
 import noline.zhouzhou.data.model.btCounts
 import noline.zhouzhou.data.model.btDisks
 import noline.zhouzhou.data.model.btNetwork
+import noline.zhouzhou.data.model.btResultView
 import noline.zhouzhou.data.model.btSystemSnapshot
 import noline.zhouzhou.data.remote.BtException
 import noline.zhouzhou.data.remote.BtIssue
@@ -24,6 +27,14 @@ data class BtTablePage(
     val table: BtTable,
     val rows: List<BtRow>,
     val total: Int?
+)
+
+/** 通用调用台跑完一条接口留下的东西：面板那句话、脱敏后的回包、花了多久。 */
+data class BtCallResult(
+    val endpoint: BtEndpoint,
+    val msg: String,
+    val view: BtResultView,
+    val tookMs: Long
 )
 
 /**
@@ -106,6 +117,22 @@ class BtPanelRepository(
     suspend fun runTask(id: String): Result<String> = runCatching { api().runCrontab(id) }
 
     suspend fun taskLog(id: String): Result<String> = runCatching { api().crontabLog(id) }
+
+    /**
+     * 通用调用台的一条：把目录里那条接口原样发出去，回包先整棵脱敏、再决定摆不摆成表。
+     *
+     * 面板自己写的那句 `msg` 单独留着——多数写接口不返回数据，那一句就是唯一的结果凭据。
+     */
+    suspend fun call(endpoint: BtEndpoint, values: Map<String, String>): Result<BtCallResult> = runCatching {
+        val started = System.currentTimeMillis()
+        val reply = api().invoke(endpoint, values)
+        BtCallResult(
+            endpoint = endpoint,
+            msg = reply.msg,
+            view = btResultView(reply.root),
+            tookMs = System.currentTimeMillis() - started
+        )
+    }
 
     /**
      * 「保存并自检」用的一条：把失败翻成「问题 + 面板原文 + 下一步」，

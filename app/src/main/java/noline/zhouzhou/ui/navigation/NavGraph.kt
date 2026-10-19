@@ -33,6 +33,7 @@ import noline.zhouzhou.ui.screens.admin.DuplicatesScreen
 import noline.zhouzhou.ui.screens.admin.PagesScreen
 import noline.zhouzhou.ui.screens.bills.BillReportScreen
 import noline.zhouzhou.ui.screens.bills.BillsScreen
+import noline.zhouzhou.ui.screens.btpanel.BtConsoleScreen
 import noline.zhouzhou.ui.screens.btpanel.BtPanelScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
 import noline.zhouzhou.ui.screens.drive.DriveScreen
@@ -84,6 +85,9 @@ sealed class Screen(val route: String) {
     data object Shares : Screen("cloudreve/shares")
     /** 宝塔面板管的是服务器，不是站点内容；管理员的标签少一个，这一格补在末位。 */
     data object BtPanel : Screen("settings/btpanel")
+
+    /** 通用调用台：官方文档里那 329 条接口都从宝塔页这一格进去。 */
+    data object BtConsole : Screen("settings/btpanel/console")
 }
 
 private val HomeTab = TabSpec(
@@ -294,6 +298,14 @@ fun TypechoNavHost(
 
                 composable(Screen.BtPanel.route) {
                     BtPanelScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        onOpenConsole = { navController.navigate(Screen.BtConsole.route) }
+                    )
+                }
+
+                composable(Screen.BtConsole.route) {
+                    BtConsoleScreen(
                         appContainer = appContainer,
                         onBack = { navController.popBackStack() }
                     )

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -54,7 +55,8 @@ private sealed interface PendingAction {
 @Composable
 fun BtPanelScreen(
     appContainer: AppContainer,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenConsole: () -> Unit
 ) {
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -198,9 +200,12 @@ fun BtPanelScreen(
 
             // 没真读到看板之前不摆表格和服务按钮：配置存了不等于连上了，
             // 这时候给一张「站点 · 0 条」的空表，看着像面板说它是 0。
+            // 调用台是个例外——看板超时不代表单条接口发不出去，别把人挡在外面。
             if (state.dashboard != null) {
                 Spacer(Modifier.height(14.dp))
                 TableCard(state, viewModel) { pending = it }
+                Spacer(Modifier.height(14.dp))
+                ConsoleCard(onOpenConsole)
                 Spacer(Modifier.height(14.dp))
                 ServiceCard(state, viewModel) { pending = it }
 
@@ -211,6 +216,9 @@ fun BtPanelScreen(
                         onClose = viewModel::closeLog
                     )
                 }
+            } else if (state.configured) {
+                Spacer(Modifier.height(14.dp))
+                ConsoleCard(onOpenConsole)
             }
             Spacer(Modifier.height(20.dp + tabBarInset))
         }
@@ -295,9 +303,9 @@ private fun ConfigCard(state: BtPanelUiState, viewModel: BtPanelViewModel) {
     }
 }
 
-/** 自检失败时摊三段：是什么、那句话、下一步做什么。 */
+/** 自检失败时摊三段：是什么、那句话、下一步做什么。通用调用台也用它。 */
 @Composable
-private fun FailureCard(failure: BtFailure) {
+internal fun FailureCard(failure: BtFailure) {
     val t = LocalNoLine.current
     Column(
         modifier = Modifier
@@ -334,8 +342,9 @@ private fun EmptyHint() {
         Text("还没连上面板", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
         Spacer(Modifier.height(6.dp))
         Text(
-            "填好地址和密钥，点「保存并自检」。这一页只读看板加几个低风险动作——" +
-                "建站、删站、建库、删库都不在这里，那种事还是到面板里亲手做。",
+            "填好地址和密钥，点「保存并自检」。连上之后这一页除了只读看板，还会多出「通用调用台」——" +
+                "官方文档里的每一条接口都在那儿，建站、删站、建库、删库都能发，" +
+                "只是会改的要先确认，会删的得亲手打一遍「删除」。",
             fontSize = 12.5.sp,
             color = t.textSecondary,
             lineHeight = 19.sp
@@ -663,6 +672,43 @@ private fun RowCard(
     }
 }
 
+/**
+ * 通用调用台的入口。这一页上面只有看板 + 四张表 + 四个服务动作，
+ * 面板真正能干的活远不止这些，所以把官方文档那整套餐都开一格给人翻。
+ */
+@Composable
+private fun ConsoleCard(onOpen: () -> Unit) {
+    val t = LocalNoLine.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .noLineCard(RoundedCornerShape(14.dp))
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.Terminal, contentDescription = null,
+                modifier = Modifier.size(17.dp), tint = t.accent
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("全部接口 · 通用调用台", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "官方接口文档里的每一条都能在这里翻到：选模块、搜接口、填参数、发出去。" +
+                "只读的点了就跑，会改的问一句，会删的要亲手打一遍「删除」。" +
+                "回包一律先把密码、私钥那类字段涂掉再摆出来。",
+            fontSize = 12.sp,
+            color = t.textSecondary,
+            lineHeight = 18.sp
+        )
+        Spacer(Modifier.height(10.dp))
+        FilledTonalButton(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+            Text("打开调用台", fontSize = 13.5.sp)
+        }
+    }
+}
+
 @Composable
 private fun ServiceCard(
     state: BtPanelUiState,
@@ -751,9 +797,10 @@ private fun percentText(percent: Double): String =
 
 /**
  * 确认门。mustType 为真时必须把关键词一字不差打出来，避免手滑点下去就把服务重启了。
+ * 通用调用台的写/删接口走的是同一道门。
  */
 @Composable
-private fun ConfirmAction(
+internal fun ConfirmAction(
     title: String,
     body: String,
     keyword: String,

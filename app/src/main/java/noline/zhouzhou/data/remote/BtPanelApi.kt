@@ -1,5 +1,6 @@
 package noline.zhouzhou.data.remote
 
+import noline.zhouzhou.data.model.BtEndpoint
 import noline.zhouzhou.data.model.BtPanelConfig
 import noline.zhouzhou.data.model.BtRow
 import noline.zhouzhou.data.model.BtTable
@@ -83,7 +84,12 @@ internal enum class BtModule(val path: String) {
     Crontab("crontab")
 }
 
-data class BtRequest(val url: String, val form: Map<String, String>)
+data class BtRequest(
+    val url: String,
+    val form: Map<String, String>,
+    /** 面板的模块口全是 POST，Docker / Java 那批新口是 GET + query。 */
+    val verb: String = "POST"
+)
 
 data class BtRaw(val status: Int, val contentType: String, val body: String)
 
@@ -120,13 +126,25 @@ class OkHttpBtTransport(
     private val formType = "application/x-www-form-urlencoded; charset=utf-8".toMediaType()
 
     override suspend fun execute(request: BtRequest): BtRaw = withContext(Dispatchers.IO) {
-        val encoded = request.form.entries.joinToString("&") { (key, value) ->
-            URLEncoder.encode(key, "UTF-8") + "=" + URLEncoder.encode(value, "UTF-8")
-        }.toRequestBody(formType)
-        val builder = Request.Builder()
-            .url(request.url)
-            .header("Accept", "application/json")
-            .post(encoded)
+        val encodedForm = {
+            request.form.entries.joinToString("&") { (key, value) ->
+                URLEncoder.encode(key, "UTF-8") + "=" + URLEncoder.encode(value, "UTF-8")
+            }.toRequestBody(formType)
+        }
+        val builder = if (request.verb.equals("GET", ignoreCase = true)) {
+            val query = request.form.entries.joinToString("&") { (key, value) ->
+                URLEncoder.encode(key, "UTF-8") + "=" + URLEncoder.encode(value, "UTF-8")
+            }
+            Request.Builder()
+                .url(request.url.trimEnd('/') + "?" + query)
+                .header("Accept", "application/json")
+                .get()
+        } else {
+            Request.Builder()
+                .url(request.url)
+                .header("Accept", "application/json")
+                .post(encodedForm())
+        }
         try {
             client.newCall(builder.build()).execute().use { response ->
                 val type = response.header("Content-Type")
@@ -246,8 +264,26 @@ class BtPanelApi(
         module: BtModule,
         action: String,
         params: Map<String, String> = emptyMap()
+    ): BtReply = send(moduleUrl(requireSite(), module), action, params, "POST")
+
+    /**
+     * 通用调用台走这里：目录里那条接口写的是什么路径、什么动词、动作放 body 还是放 URL，
+     * 就照它发。签名字段照样要带，所以不能直接拿 okhttp 自己拼。
+     */
+    suspend fun invoke(endpoint: BtEndpoint, values: Map<String, String>): BtReply = send(
+        url = requireSite() + endpoint.path,
+        action = if (endpoint.sendsActionParam) endpoint.name else null,
+        params = values.filterKeys { it !in ProtectedFormKeys }.filterValues { it.isNotBlank() },
+        verb = if (endpoint.isGet) "GET" else "POST"
+    )
+
+    private suspend fun send(
+        url: String,
+        action: String?,
+        params: Map<String, String>,
+        verb: String
     ): BtReply {
-        val site = config.site.trim().trimEnd('/')
+        val site = requireSite()
         val key = config.key.trim()
         if (site.isBlank() || key.isBlank()) {
             throw BtException(BtIssue.NoConfig, "还没有填面板地址和接口密钥")
@@ -255,12 +291,14 @@ class BtPanelApi(
         val time = clock()
         val form = linkedMapOf(
             "request_time" to time.toString(),
-            "request_token" to sign(key, time),
-            "action" to action
+            "request_token" to sign(key, time)
         )
-        form.putAll(params)
-        return interpret(transport.execute(BtRequest(moduleUrl(site, module), form)), action)
+        if (action != null) form["action"] = action
+        form.putAll(params.filterKeys { it !in ProtectedFormKeys })
+        return interpret(transport.execute(BtRequest(url, form, verb)), action ?: url)
     }
+
+    private fun requireSite(): String = config.site.trim().trimEnd('/')
 
     /**
      * 面板给的 status=false 一律抛异常，把它的原文当 message 带出去 —— 报错文案各版本差得多，
@@ -323,6 +361,12 @@ class BtPanelApi(
     companion object {
         private const val PageLimit = 30
 
+        /**
+         * 这三个键由客户端自己算，参数表里出现了也不许覆盖：
+         * 真让人手打一个 `request_token` 进去，签名就废了，而面板只会回一句「token 过期」。
+         */
+        internal val ProtectedFormKeys = setOf("request_time", "request_token", "action")
+
         /** `md5(秒级时间戳 + md5(密钥))`，两次 MD5、小写十六进制，顺序不能换。 */
         fun sign(key: String, timeSeconds: Long): String =
             md5Hex(timeSeconds.toString() + md5Hex(key))
@@ -336,7 +380,9 @@ class BtPanelApi(
 
         /** 面板的报错没有码表，只能按文案分诊；分不出来就归 Unknown，原文照样带出去。 */
         internal fun issueForMessage(msg: String): BtIssue = when {
-            msg.contains("IP") && (msg.contains("不允许") || msg.contains("白名单") || msg.contains("不支持")) ->
+            // 「不允许」「不支持」「不被允许」三种说法在实测的各版本里都出现过，漏一个就归到 Unknown。
+            msg.contains("IP") &&
+                (msg.contains("不允许") || msg.contains("被允许") || msg.contains("白名单") || msg.contains("不支持")) ->
                 BtIssue.IpBlocked
             listOf("token", "签名", "密钥", "认证", "授权").any { msg.contains(it, ignoreCase = true) } ->
                 BtIssue.WrongKey
