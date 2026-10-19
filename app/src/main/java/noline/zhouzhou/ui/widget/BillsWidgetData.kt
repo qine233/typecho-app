@@ -81,13 +81,58 @@ data class WidgetBillRow(
     val pending: Boolean = false
 )
 
+/** 卡片上能摆几行流水、要不要进度条，由宿主真给的高度算出来。 */
+internal data class BillsFitPlan(val rows: Int, val showToday: Boolean, val showBar: Boolean)
+
+/**
+ * 排版要吃的高度是一行一行加出来的，桌面给的高度却不归排版管：3×3 那张在有的机型上
+ * 只有 250dp 上下，比模拟器矮 60dp，预算进度条一来就把底部那颗**定高**的「记一笔」压扁。
+ * 所以从最不要紧的开始让位：先少摆一行流水，再撤进度条（预算那行小字留着），最后才不写「今天」。
+ *
+ * 数值是照 420dpi 实渲染量的：一行 12.5sp 小字连上下留白 26dp，标签 24dp，
+ * 进度条 6dp 加上下 8dp，字号行高按 1.35 倍算。
+ */
+internal fun billsFitPlan(spec: WidgetSpec, heightDp: Float, hasBudget: Boolean): BillsFitPlan {
+    val fixed = CardPaddingDp * 2 + HeaderRowDp + spec.amountSp * AmountLineRatio +
+        ButtonGapDp + spec.buttonDp
+    fun cost(rows: Int, today: Boolean, bar: Boolean) = fixed +
+        (if (today) TodayRowDp else 0f) +
+        (if (bar) BudgetTextRowDp + BudgetBarDp else BudgetTextRowDp) +
+        (if (rows > 0) ListLabelDp + rows * ListRowDp else 0f)
+
+    var rows = spec.rows
+    var today = true
+    var bar = hasBudget
+    while (cost(rows, today, bar) > heightDp) {
+        when {
+            rows > 0 -> rows--
+            bar -> bar = false
+            today -> today = false
+            else -> break
+        }
+    }
+    return BillsFitPlan(rows, today, bar)
+}
+
+private const val CardPaddingDp = 10f
+private const val HeaderRowDp = 20f
+private const val AmountLineRatio = 1.35f
+private const val TodayRowDp = 17f
+private const val BudgetTextRowDp = 17f
+private const val BudgetBarDp = 14f
+private const val ListLabelDp = 24f
+private const val ListRowDp = 26f
+private const val ButtonGapDp = 6f
+
 fun buildBillsWidgetData(
     configured: Boolean,
     overview: BillsOverview?,
     status: BillBudgetStatus,
     pending: List<PendingBill>,
     hints: List<TitleHint>,
-    spec: WidgetSpec = WidgetSpec.Full
+    spec: WidgetSpec = WidgetSpec.Full,
+    /** 宿主给的卡片高度；拿不到就按规格排（老行为）。 */
+    heightDp: Float? = null
 ): BillsWidgetData {
     val currency = overview?.currency ?: "CNY"
     val today = overview?.span?.today?.takeIf { it.length >= 10 } ?: RecordPreflight.today()
@@ -102,6 +147,7 @@ fun buildBillsWidgetData(
     val monthCount = overview?.month?.count ?: 0
     val hasBar = status.budget.hasLimit
     val empty = overview == null
+    val fit = heightDp?.let { billsFitPlan(spec, it, hasBar) } ?: BillsFitPlan(spec.rows, true, hasBar)
 
     return BillsWidgetData(
         configured = configured,
@@ -113,15 +159,15 @@ fun buildBillsWidgetData(
             "${monthCount} 笔".takeIf { monthCount > 0 },
             overview.span.monthFraction
         ).joinToString(" · "),
-        todayText = if (empty) ""
+        todayText = if (empty || !fit.showToday) ""
         else if (todayTotal <= 0.0) "今天还没花" else "今天 ${moneyPlain(todayTotal)}",
         pendingText = if (pending.isEmpty()) "" else "${pending.size} 笔待同步",
-        hasBudgetBar = hasBar,
+        hasBudgetBar = fit.showBar,
         budgetFraction = status.usedFraction,
         budgetText = budgetText(status),
         percentText = if (hasBar) "${(status.usedFraction * 100).roundToInt()}%" else "",
         over = status.anyOver,
-        rows = buildRows(unsent, overview, hints, currency, spec.rows)
+        rows = buildRows(unsent, overview, hints, currency, fit.rows)
     )
 }
 

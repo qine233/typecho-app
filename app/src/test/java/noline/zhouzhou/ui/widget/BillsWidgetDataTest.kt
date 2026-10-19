@@ -36,6 +36,12 @@ class BillsWidgetDataTest {
         span = span
     )
 
+    /** 3×3 排满三行得有货，上面那份只给了两笔流水。 */
+    private val threeRecent = overview.copy(
+        recent = overview.recent +
+            BillRecord(id = "r3", date = "2026-10-16", title = "西红柿", amount = 12.0, kind = "veg")
+    )
+
     private fun build(
         configured: Boolean = true,
         data: BillsOverview? = overview,
@@ -44,14 +50,16 @@ class BillsWidgetDataTest {
         kindSpent: Map<String, Double> = emptyMap(),
         pending: List<PendingBill> = emptyList(),
         hints: List<TitleHint> = emptyList(),
-        spec: WidgetSpec = WidgetSpec.Full
+        spec: WidgetSpec = WidgetSpec.Full,
+        heightDp: Float? = null
     ) = buildBillsWidgetData(
         configured = configured,
         overview = data,
         status = billBudgetStatus(budget, spent, kindSpent),
         pending = pending,
         hints = hints,
-        spec = spec
+        spec = spec,
+        heightDp = heightDp
     )
 
     private fun add(date: String, title: String, amount: Double, kind: String = "other") =
@@ -253,6 +261,44 @@ class BillsWidgetDataTest {
         assertTrue(data.rows.isEmpty())
         // 待同步的笔数还是得说，那是唯一能提醒用户「App 还没打开过」的地方
         assertEquals("1 笔待同步", data.pendingText)
+    }
+
+    @Test
+    fun `桌面给矮了先撤流水行，别压扁底部那颗按钮`() {
+        // 3×3 满排在模拟器上吃 311dp，换台机器同一格可能只有 250dp——
+        // 差的那 60dp 只能从流水行身上扣，定高的「记一笔」不能动。
+        assertEquals(3, build(data = threeRecent, heightDp = 311f).rows.size)
+        assertEquals(2, build(data = threeRecent, heightDp = 250f).rows.size)
+        assertEquals(1, build(data = threeRecent, heightDp = 220f).rows.size)
+        assertEquals(0, build(data = threeRecent, heightDp = 200f).rows.size)
+        // 没设预算时进度条那 14dp 本来就省下来了，同样的矮卡还能多摆一行
+        assertEquals(3, build(data = threeRecent, heightDp = 260f, budget = BillBudget()).rows.size)
+    }
+
+    @Test
+    fun `矮到流水全撤了就撤进度条，预算那行小字留着`() {
+        val data = build(heightDp = 160f)
+        assertFalse(data.hasBudgetBar)
+        assertEquals("还剩 800.00", data.budgetText)
+        assertEquals("60%", data.percentText)
+        assertEquals("今天 32.50", data.todayText)
+    }
+
+    @Test
+    fun `再矮连今天都不写，合计和预算是最后那道防线`() {
+        val data = build(heightDp = 140f)
+        assertEquals("", data.todayText)
+        assertFalse(data.hasBudgetBar)
+        assertEquals("¥1200.00", data.monthAmount)
+        assertEquals("还剩 800.00", data.budgetText)
+    }
+
+    @Test
+    fun `问不到宿主给多高就照规格排`() {
+        val data = build(data = threeRecent, heightDp = null)
+        assertEquals(3, data.rows.size)
+        assertTrue(data.hasBudgetBar)
+        assertEquals("今天 32.50", data.todayText)
     }
 
     @Test

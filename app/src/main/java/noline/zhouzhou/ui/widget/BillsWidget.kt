@@ -14,6 +14,7 @@ import androidx.glance.LocalContext
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.LinearProgressIndicator
 import androidx.glance.appwidget.action.ActionCallback
@@ -59,17 +60,17 @@ import noline.zhouzhou.ui.theme.LightNoLine
  */
 class BillsWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) =
-        provideBills(context, WidgetSpec.Full)
+        provideBills(context, id, WidgetSpec.Full)
 }
 
 class BillsWidgetMedium : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) =
-        provideBills(context, WidgetSpec.Medium)
+        provideBills(context, id, WidgetSpec.Medium)
 }
 
 class BillsWidgetCompact : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) =
-        provideBills(context, WidgetSpec.Compact)
+        provideBills(context, id, WidgetSpec.Compact)
 }
 
 class BillsWidgetReceiver : GlanceAppWidgetReceiver() {
@@ -118,13 +119,25 @@ suspend fun refreshBillsWidget(context: Context) {
     updateAllBillsWidgets(context.applicationContext)
 }
 
-private suspend fun GlanceAppWidget.provideBills(context: Context, spec: WidgetSpec) {
-    val data = runCatching { loadBillsWidgetData(context, spec) }
+private suspend fun GlanceAppWidget.provideBills(context: Context, id: GlanceId, spec: WidgetSpec) {
+    val heightDp = runCatching { cardHeightDp(context, id) }.getOrNull()
+    val data = runCatching { loadBillsWidgetData(context, spec, heightDp) }
         .getOrElse { BillsWidgetData.unavailable() }
     provideContent { BillsWidgetContent(spec, data) }
 }
 
-private suspend fun loadBillsWidgetData(context: Context, spec: WidgetSpec): BillsWidgetData {
+/**
+ * 宿主真给多高。同一张 3×3 在不同机器的桌面上能差出 60dp（格子数是死的，格子高度随屏幕），
+ * 所以摆几行流水不能照规格硬排，得问它——问不到（返回空、没绑定）就退回按规格排。
+ */
+private suspend fun cardHeightDp(context: Context, id: GlanceId): Float? =
+    GlanceAppWidgetManager(context).getAppWidgetSizes(id).maxOfOrNull { it.height.value }
+
+private suspend fun loadBillsWidgetData(
+    context: Context,
+    spec: WidgetSpec,
+    heightDp: Float?
+): BillsWidgetData {
     val repository = (context.applicationContext as? TypechoApplication)?.container?.billsRepository
         ?: return BillsWidgetData.unavailable()
     return withContext(Dispatchers.IO) {
@@ -134,7 +147,8 @@ private suspend fun loadBillsWidgetData(context: Context, spec: WidgetSpec): Bil
             status = repository.currentBudgetStatus(),
             pending = repository.pendingOps(),
             hints = repository.titleHints(),
-            spec = spec
+            spec = spec,
+            heightDp = heightDp
         )
     }
 }
@@ -161,6 +175,25 @@ private val WarnColor = ColorProvider(LightNoLine.healthOver, DarkNoLine.healthO
  * 圆角不走 Glance 的 cornerRadius（那是 API 31 起的东西，minSdk 26 用不了），
  * 根背景给的是 [R.drawable.widget_card_bg] 那张 shape：圆角外面是透明的，桌面露壁纸。
  */
+/**
+ * 卡片上每一条留白。3×3 那一格桌面只给 311dp，扣掉内容正好剩 9dp，
+ * 预算进度条一来（它自己 6dp，加上下面那行小字和上下留白共 37dp）就把底部的
+ * 「记一笔」压扁了——桌面给的高度不像模拟器这么慷慨，所以留白全按最紧的算。
+ * 字号一个都没动，缩的是条与条之间那些看不出来的空隙。
+ */
+private val CardPaddingVertical = 10.dp
+private val CardPaddingHorizontalWide = 18.dp
+private val CardPaddingHorizontalNarrow = 15.dp
+private val HeaderTouchPadding = 2.dp
+private val BudgetGapTop = 5.dp
+private val BudgetGapBar = 3.dp
+private val ListGapTop = 7.dp
+private val RowGap = 4.dp
+private val ButtonGap = 6.dp
+
+/** 没设预算时那一行小字上面留多少；设了就用 [BudgetGapTop] 给进度条让位。 */
+private val PlainGapTop = 4.dp
+
 @Composable
 private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
     val context = LocalContext.current
@@ -171,8 +204,8 @@ private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
             .fillMaxSize()
             .background(ImageProvider(R.drawable.widget_card_bg))
             .padding(
-                horizontal = if (wide) 18.dp else 15.dp,
-                vertical = if (wide) 13.dp else 12.dp
+                horizontal = if (wide) CardPaddingHorizontalWide else CardPaddingHorizontalNarrow,
+                vertical = CardPaddingVertical
             )
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -189,7 +222,7 @@ private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
                 ),
                 modifier = GlanceModifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = HeaderTouchPadding)
                     .clickable(actionRunCallback<BillsWidgetRefreshCallback>())
             )
         }
@@ -214,18 +247,21 @@ private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
                         )
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(data.todayText, style = TextStyle(color = SoftText, fontSize = 12.sp))
-                    if (data.pendingText.isNotEmpty()) {
-                        Text(
-                            data.pendingText,
-                            style = TextStyle(color = WarnColor, fontSize = 10.5.sp, textAlign = TextAlign.End),
-                            modifier = GlanceModifier.fillMaxWidth()
-                        )
+                // 「今天」是可让位的那一行：桌面给矮了就先不写它，让进度条和预算留着
+                if (data.todayText.isNotEmpty() || data.pendingText.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(data.todayText, style = TextStyle(color = SoftText, fontSize = 12.sp))
+                        if (data.pendingText.isNotEmpty()) {
+                            Text(
+                                data.pendingText,
+                                style = TextStyle(color = WarnColor, fontSize = 10.5.sp, textAlign = TextAlign.End),
+                                modifier = GlanceModifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
-            Column(modifier = GlanceModifier.padding(top = if (data.hasBudgetBar) 10.dp else 4.dp)) {
+            Column(modifier = GlanceModifier.padding(top = if (data.hasBudgetBar) BudgetGapTop else PlainGapTop)) {
                 if (data.hasBudgetBar) {
                     LinearProgressIndicator(
                         progress = data.budgetFraction,
@@ -233,7 +269,7 @@ private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
                         color = if (data.over) OverColor else AccentColor,
                         backgroundColor = TrackColor
                     )
-                    Spacer(GlanceModifier.height(5.dp))
+                    Spacer(GlanceModifier.height(BudgetGapBar))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -266,18 +302,18 @@ private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
         // 没流水时（2×2 和 3×2）它顶在按钮上面，不然卡片底下会空出一条。
         if (data.rows.isNotEmpty()) {
             Spacer(GlanceModifier.defaultWeight())
-            Column(modifier = GlanceModifier.padding(top = 11.dp)) {
+            Column(modifier = GlanceModifier.padding(top = ListGapTop)) {
                 Text(
                     "再买一次",
                     style = TextStyle(color = FaintText, fontSize = 10.sp),
-                    modifier = GlanceModifier.padding(bottom = 2.dp)
+                    modifier = GlanceModifier.padding(bottom = 1.dp)
                 )
                 data.rows.forEach { row ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = GlanceModifier
                             .fillMaxWidth()
-                            .padding(vertical = 5.dp)
+                            .padding(vertical = RowGap)
                             .clickable(openBillsAction(context, AppLinks.billsAdd(row.prefill.title, row.prefill.kind)))
                     ) {
                         Text(
@@ -298,7 +334,7 @@ private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
                     }
                 }
             }
-            Spacer(GlanceModifier.height(10.dp))
+            Spacer(GlanceModifier.height(ButtonGap))
         } else {
             Spacer(GlanceModifier.defaultWeight())
         }
