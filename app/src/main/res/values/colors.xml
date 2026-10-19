@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 小组件里唯一画不进 ColorProvider 的东西：Glance 的圆角背景只能给一张 drawable，
+         而它是在桌面进程里解析的，所以只能靠 -night 目录跟着系统深色走。 -->
+    <color name="widget_primary_bg">#425AEF</color>
+</resources>

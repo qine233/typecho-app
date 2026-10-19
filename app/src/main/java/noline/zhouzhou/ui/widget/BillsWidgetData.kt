@@ -2,6 +2,7 @@ package noline.zhouzhou.ui.widget
 
 import noline.zhouzhou.data.model.BillBudgetStatus
 import noline.zhouzhou.data.model.BillKind
+import noline.zhouzhou.data.model.BillRecord
 import noline.zhouzhou.data.model.BillsOverview
 import noline.zhouzhou.data.repository.PendingBill
 import noline.zhouzhou.data.repository.RecordPreflight
@@ -21,25 +22,38 @@ import kotlin.math.roundToInt
 data class BillsWidgetData(
     val configured: Boolean,
     val hasData: Boolean,
-    val caption: String,
+    val dateText: String,
     val monthAmount: String,
+    val monthMeta: String,
     val todayText: String,
-    val barText: String,
-    val percentText: String,
-    val budgetText: String,
-    val over: Boolean,
     val pendingText: String,
-    val chips: List<BillPrefill>
+    val hasBudgetBar: Boolean,
+    val budgetFraction: Float,
+    val budgetText: String,
+    val percentText: String,
+    val over: Boolean,
+    val rows: List<WidgetBillRow>
 ) {
     companion object {
         /** 读不到本地缓存时的兜底：不能画一张空白卡，得说清是哪儿没通。 */
         fun unavailable() = BillsWidgetData(
-            configured = false, hasData = false, caption = "买菜记账",
-            monthAmount = "—", todayText = "", barText = "", percentText = "",
-            budgetText = "", over = false, pendingText = "", chips = emptyList()
+            configured = false, hasData = false, dateText = "", monthAmount = "—",
+            monthMeta = "", todayText = "", pendingText = "", hasBudgetBar = false,
+            budgetFraction = 0f, budgetText = "", percentText = "", over = false,
+            rows = emptyList()
         )
     }
 }
+
+/** 卡片上的一行流水：点它是「再买一次」，所以得带着品名和分类。 */
+data class WidgetBillRow(
+    val title: String,
+    val amountText: String,
+    val meta: String,
+    val prefill: BillPrefill,
+    /** 这条还躺在本机队列里，金额标成提醒色，免得看着像已经记上了。 */
+    val pending: Boolean = false
+)
 
 fun buildBillsWidgetData(
     configured: Boolean,
@@ -58,30 +72,36 @@ fun buildBillsWidgetData(
     val todayTotal = (overview?.byDate?.firstOrNull { it.date == today }?.amount ?: 0.0) +
         unsent.filter { it.date == today }.sumOf { it.amount }
 
-    val chips = buildChips(overview, hints)
+    val monthCount = overview?.month?.count ?: 0
+    val hasBar = status.budget.hasMonthly
+    val empty = overview == null
 
     return BillsWidgetData(
         configured = configured,
-        hasData = overview != null,
-        caption = if (overview == null) "买菜记账" else "本月 · ${overview.span.monthFraction}",
+        hasData = !empty,
+        dateText = slashDate(today),
         monthAmount = overview?.let { moneyShort(monthTotal, currency) } ?: "—",
-        todayText = if (overview == null) ""
+        monthMeta = if (empty) ""
+        else listOfNotNull(
+            "本月",
+            "${monthCount} 笔".takeIf { monthCount > 0 },
+            overview.span.monthFraction
+        ).joinToString(" · "),
+        todayText = if (empty) ""
         else if (todayTotal <= 0.0) "今天还没花" else "今天 ${moneyPlain(todayTotal)}",
-        barText = if (status.budget.hasMonthly) budgetBar(status.usedFraction) else "",
-        percentText = if (status.budget.hasMonthly) "${(status.usedFraction * 100).roundToInt()}%" else "",
-        budgetText = budgetText(status),
-        over = status.anyOver,
         pendingText = if (pending.isEmpty()) "" else "${pending.size} 笔待同步",
-        chips = chips
+        hasBudgetBar = hasBar,
+        budgetFraction = status.usedFraction,
+        budgetText = budgetText(status),
+        percentText = if (hasBar) "${(status.usedFraction * 100).roundToInt()}%" else "",
+        over = status.anyOver,
+        rows = buildRows(unsent, overview, hints, currency)
     )
 }
 
-/** 十个格子的进度条。Glance 没有 weight，画不出按比例伸缩的条，字符条反而稳。 */
-internal fun budgetBar(fraction: Float, cells: Int = 10): String {
-    val filled = if (fraction <= 0f) 0
-    else (fraction * cells).roundToInt().coerceAtLeast(1).coerceAtMost(cells)
-    return "█".repeat(filled) + "░".repeat(cells - filled)
-}
+/** `2026-10-08` → `10/08`，比「10月08日」省下的那点宽度够放一个品名。 */
+internal fun slashDate(date: String): String =
+    if (date.length >= 10) "${date.substring(5, 7)}/${date.substring(8, 10)}" else date
 
 private fun budgetText(status: BillBudgetStatus): String {
     if (!status.active) return "没设预算"
@@ -94,15 +114,53 @@ private fun budgetText(status: BillBudgetStatus): String {
     return if (overKind.isEmpty()) head else "$head · $overKind"
 }
 
-/** 常记条目：最近买过的排前面，一条都没有才退到历史候选。 */
-private fun buildChips(overview: BillsOverview?, hints: List<TitleHint>): List<BillPrefill> {
+/** 卡片上排几行流水：三行刚好把 3×3 那张卡填平，再多就没地方放主按钮了。 */
+internal const val WidgetRowCount = 3
+
+/** 品名占的列宽是死的，超长只能在算文案时截断，Glance 不会自己打点。 */
+internal const val RowTitleMaxChars = 6
+
+/**
+ * 最近买过的那几行：本机还没传上去的排最前（它们才是用户刚做的事），
+ * 再往后是站点回的近几日流水；一条记录都没有才退到历史候选，那种行没有金额。
+ */
+private fun buildRows(
+    unsent: List<BillRecord>,
+    overview: BillsOverview?,
+    hints: List<TitleHint>,
+    currency: String
+): List<WidgetBillRow> {
+    val fromUnsent = unsent.sortedByDescending { it.date }.map {
+        WidgetBillRow(
+            title = it.title.trim(),
+            amountText = moneyShort(it.amount, currency),
+            meta = "待同步",
+            prefill = BillPrefill(it.title, BillKind.normalize(it.kind)),
+            pending = true
+        )
+    }
     val fromRecent = overview?.recent.orEmpty().mapNotNull { row ->
-        row.title.trim().takeIf { it.isNotEmpty() }
-            ?.let { BillPrefill(it, BillKind.normalize(row.kind)) }
+        row.title.trim().takeIf { it.isNotEmpty() }?.let {
+            WidgetBillRow(
+                title = it,
+                amountText = moneyShort(row.amount, currency),
+                meta = slashDate(row.date),
+                prefill = BillPrefill(it, BillKind.normalize(row.kind))
+            )
+        }
     }
     val fromHints = hints.mapNotNull { hint ->
-        hint.title.trim().takeIf { it.isNotEmpty() }
-            ?.let { BillPrefill(it, BillKind.normalize(hint.kind)) }
+        hint.title.trim().takeIf { it.isNotEmpty() }?.let {
+            WidgetBillRow(
+                title = it,
+                amountText = "",
+                meta = "常买",
+                prefill = BillPrefill(it, BillKind.normalize(hint.kind))
+            )
+        }
     }
-    return (fromRecent + fromHints).distinctBy { it.title }.take(3)
+    return (fromUnsent + fromRecent + fromHints)
+        .distinctBy { it.title }
+        .take(WidgetRowCount)
+        .map { it.copy(title = it.title.take(RowTitleMaxChars)) }
 }

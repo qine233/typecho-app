@@ -30,7 +30,7 @@ class BillsWidgetDataTest {
         byDate = listOf(BillDayGroup(date = "2026-10-18", amount = 32.5, count = 2)),
         recent = listOf(
             BillRecord(id = "r1", date = "2026-10-18", title = "白菜", amount = 6.0, kind = "veg"),
-            BillRecord(id = "r2", date = "2026-10-18", title = "五花肉", amount = 26.5, kind = "meat")
+            BillRecord(id = "r2", date = "2026-10-17", title = "五花肉", amount = 26.5, kind = "meat")
         ),
         span = span
     )
@@ -91,30 +91,41 @@ class BillsWidgetDataTest {
         val data = build(configured = false, data = null)
         assertFalse(data.hasData)
         assertTrue(data.configured.not())
-        assertEquals("买菜记账", data.caption)
         assertEquals("—", data.monthAmount)
+        assertEquals("", data.monthMeta)
         assertEquals("", data.todayText)
     }
 
     @Test
-    fun `本月过了几天写在标题上`() {
-        assertEquals("本月 · 18/31 天", build().caption)
+    fun `本月过了几天写在金额旁边`() {
+        assertEquals("本月 · 40 笔 · 18/31 天", build().monthMeta)
     }
 
     @Test
-    fun `进度条十个格子`() {
-        assertEquals("░".repeat(10), budgetBar(0f))
-        assertEquals("█".repeat(5) + "░".repeat(5), budgetBar(0.5f))
-        // 才花了一点也要看得见一格，全空会让人以为没在记
-        assertEquals("█" + "░".repeat(9), budgetBar(0.02f))
-        assertEquals("█".repeat(10), budgetBar(1f))
-        assertEquals("█".repeat(10), budgetBar(2.5f))
+    fun `一笔都还没记时不写笔数`() {
+        val data = build(data = overview.copy(month = BillAggregate(amount = 0.0, count = 0)))
+        assertEquals("本月 · 18/31 天", data.monthMeta)
+    }
+
+    @Test
+    fun `日期只留月日`() {
+        assertEquals("10/18", slashDate("2026-10-18"))
+        assertEquals("10/08", slashDate("2026-10-08"))
+        assertEquals("2026", slashDate("2026"))
+    }
+
+    @Test
+    fun `进度条给的是真实比例，封顶一格`() {
+        val data = build(spent = 1225.0)
+        assertTrue(data.hasBudgetBar)
+        assertEquals(0.6125f, data.budgetFraction, 0.0001f)
     }
 
     @Test
     fun `没设预算时既不画条也只写一句`() {
         val data = build(budget = BillBudget())
-        assertEquals("", data.barText)
+        assertFalse(data.hasBudgetBar)
+        assertEquals(0f, data.budgetFraction, 0f)
         assertEquals("", data.percentText)
         assertEquals("没设预算", data.budgetText)
         assertFalse(data.over)
@@ -125,6 +136,8 @@ class BillsWidgetDataTest {
         val data = build(spent = 2025.0)
         assertEquals("超了 25.00", data.budgetText)
         assertTrue(data.over)
+        // 条画满，但「超了多少」才是人要看的那个数
+        assertEquals(1f, data.budgetFraction, 0f)
     }
 
     @Test
@@ -135,13 +148,36 @@ class BillsWidgetDataTest {
     @Test
     fun `只设了分类预算时不画总进度`() {
         val data = build(budget = BillBudget(perKind = mapOf("veg" to 100.0)), spent = 0.0, kindSpent = mapOf("veg" to 300.0))
-        assertEquals("", data.barText)
+        assertFalse(data.hasBudgetBar)
         assertEquals("只设了分类预算 · 蔬菜超了", data.budgetText)
         assertTrue(data.over)
     }
 
     @Test
-    fun `常记条目取最近买过的去重最多三个`() {
+    fun `离线那几笔排在最前并标成待同步`() {
+        val data = build(pending = listOf(add("2026-10-18", "鸡蛋", 7.5, "egg")))
+        assertEquals(
+            listOf(
+                WidgetBillRow("鸡蛋", "¥7.50", "待同步", BillPrefill("鸡蛋", "egg"), pending = true),
+                WidgetBillRow("白菜", "¥6.00", "10/18", BillPrefill("白菜", "veg")),
+                WidgetBillRow("五花肉", "¥26.50", "10/17", BillPrefill("五花肉", "meat"))
+            ),
+            data.rows
+        )
+    }
+
+    @Test
+    fun `品名截到六个字，列宽是死的`() {
+        val data = build(
+            data = overview.copy(
+                recent = listOf(BillRecord(id = "1", date = "2026-10-18", title = "有机农家土鸡蛋", amount = 18.0, kind = "egg"))
+            )
+        )
+        assertEquals("有机农家土鸡", data.rows.first().title)
+    }
+
+    @Test
+    fun `最近买过的去重后最多三行`() {
         val data = build(
             data = overview.copy(
                 recent = listOf(
@@ -155,25 +191,35 @@ class BillsWidgetDataTest {
             hints = listOf(TitleHint("豆腐", "veg"))
         )
         assertEquals(
-            listOf(BillPrefill("白菜", "veg"), BillPrefill("五花肉", "meat"), BillPrefill("鸡蛋", "egg")),
-            data.chips
+            listOf(
+                BillPrefill("白菜", "veg"),
+                BillPrefill("五花肉", "meat"),
+                BillPrefill("鸡蛋", "egg")
+            ),
+            data.rows.map { it.prefill }
         )
     }
 
     @Test
-    fun `一条记录都没有才用历史候选凑`() {
+    fun `一条记录都没有才用历史候选凑，那种行没有金额`() {
         val data = build(
             data = overview.copy(recent = emptyList(), byDate = emptyList()),
             hints = listOf(TitleHint("豆腐", "veg"), TitleHint("酱油", "drinks"))
         )
-        assertEquals(listOf(BillPrefill("豆腐", "veg"), BillPrefill("酱油", "other")), data.chips)
+        assertEquals(
+            listOf(
+                WidgetBillRow("豆腐", "", "常买", BillPrefill("豆腐", "veg")),
+                WidgetBillRow("酱油", "", "常买", BillPrefill("酱油", "other"))
+            ),
+            data.rows
+        )
     }
 
     @Test
     fun `读不到缓存的兜底卡片是张会说人话的空卡`() {
         val data = BillsWidgetData.unavailable()
-        assertEquals("买菜记账", data.caption)
         assertFalse(data.hasData)
-        assertTrue(data.chips.isEmpty())
+        assertEquals("—", data.monthAmount)
+        assertTrue(data.rows.isEmpty())
     }
 }
