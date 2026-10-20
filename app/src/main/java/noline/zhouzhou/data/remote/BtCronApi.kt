@@ -57,7 +57,7 @@ import noline.zhouzhou.data.model.btText
  * · `check_url_connecte`：面板代访问任意 URL 并把整页 HTML 回传，等于给它一个 SSRF 口子；
  * · `set_atuo_start_syssafe`：字面意思是「临时关掉系统加固」，关掉什么由面板决定，不做成按钮。
  *
- * `set_restart_project` / `get_restart_project_config` 留给 Java 项目那一版（v1.20.0），
+ * `set_restart_project` / `get_restart_project_config` 留给 Java 项目那一版（v1.23.0），
  * 它们操作的是项目重启，跟计划任务本身是两件事。
  */
 class BtCronApi(private val api: BtPanelApi) {

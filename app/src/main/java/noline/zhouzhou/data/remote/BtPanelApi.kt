@@ -343,6 +343,26 @@ class BtPanelApi(
     ): BtReply = send(moduleUrl(requireSite(), module), action, params, "POST")
 
     /**
+     * 路径风格接口（Docker 的 `/btdocker/…`、反向代理和 Java 项目的 `/mod/…`）走这里。
+     *
+     * 和 [call] 的区别：动作写在路径的最后一段，而不是靠 `/模块` + body 里的 action。
+     * 签名字段照旧由 [send] 现算带上，面板那一侧认 query / 表单体里的这两个键。
+     *
+     * 两个坑：
+     * 1. 路径最后一段**必须是下划线**——文档里写的是 `get-list` 这种连字符，照抄过去面板回
+     *    「调用的方法名称中不能包含\\w以外的字符」（13.1.0 实测），而这类失败也算一次调用；
+     * 2. `/mod/proxy/com/…` 那批**还要在请求里再带一份 `action`**（文档在 `get_global_conf`
+     *    那页把 `action` 列成必填），所以这里留了 [action] 参数。`action` 在
+     *    [ProtectedFormKeys] 里，从 [params] 传进来会被剥掉，必须走这个显式参数。
+     */
+    internal suspend fun callPath(
+        path: String,
+        action: String? = null,
+        params: Map<String, String> = emptyMap(),
+        verb: String = "GET"
+    ): BtReply = send(requireSite() + path, action, params, verb)
+
+    /**
      * 带文件的调用，只有 `UploadFile` 用。签名照旧塞进 multipart 的字符串段里，
      * 文件按 [part] 现读现送，不把整个文件搬进内存。
      */

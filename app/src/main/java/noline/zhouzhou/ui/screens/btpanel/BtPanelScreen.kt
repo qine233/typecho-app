@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -68,6 +69,7 @@ fun BtPanelScreen(
     onOpenFtp: () -> Unit,
     onOpenCron: () -> Unit,
     onOpenFiles: () -> Unit,
+    onOpenProxy: () -> Unit,
     onOpenSsh: () -> Unit
 ) {
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
@@ -215,7 +217,7 @@ fun BtPanelScreen(
             if (state.dashboard != null) {
                 Spacer(Modifier.height(14.dp))
                 SitesCard(onOpenSites)
-                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles, onOpenSsh)
+                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles, onOpenProxy, onOpenSsh)
                 Spacer(Modifier.height(14.dp))
                 TableCard(state, viewModel) { pending = it }
                 Spacer(Modifier.height(14.dp))
@@ -232,7 +234,7 @@ fun BtPanelScreen(
                 }
             } else if (state.configured) {
                 Spacer(Modifier.height(14.dp))
-                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles, onOpenSsh)
+                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles, onOpenProxy, onOpenSsh)
                 Spacer(Modifier.height(12.dp))
                 ConsoleLink(onOpenConsole)
             }
@@ -736,6 +738,7 @@ private fun ModuleCards(
     onOpenFtp: () -> Unit,
     onOpenCron: () -> Unit,
     onOpenFiles: () -> Unit,
+    onOpenProxy: () -> Unit,
     onOpenSsh: () -> Unit
 ) {
     val t = LocalNoLine.current
@@ -745,7 +748,7 @@ private fun ModuleCards(
             .noLineCard(RoundedCornerShape(14.dp))
             .padding(16.dp)
     ) {
-        Text("还有五块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+        Text("还有六块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
         Spacer(Modifier.height(4.dp))
         Text(
             "这一格下面这几块和网站那张同理：动的都是服务器上的真东西，会丢数据的要亲手打一遍关键词。",
@@ -792,6 +795,16 @@ private fun ModuleCards(
         )
         HorizontalDivider(color = t.hairline, modifier = Modifier.padding(vertical = 12.dp))
         ModuleEntryCard(
+            icon = Icons.Default.SwapHoriz,
+            title = "反向代理",
+            blurb = "代理列表里新建代理、看转发规则、改全局的缓存/gzip/websocket/日志，能清空代理缓存、读代理访问日志、" +
+                "改备注、开关和删除。转发目标建好之后就改不了了——面板没有这个接口，页底写了原因。" +
+                "读的四个口已在 13.1.0 正式面板上对过，写的口只在测试面板上走过。",
+            cta = "进入反向代理",
+            onOpen = onOpenProxy
+        )
+        HorizontalDivider(color = t.hairline, modifier = Modifier.padding(vertical = 12.dp))
+        ModuleEntryCard(
             icon = Icons.Default.Terminal,
             title = "SSH 终端",
             blurb = "直连这台服务器的交互式 shell，跟面板的网页接口是两条路：面板打不开、被改坏、nginx 挂了，" +
@@ -801,7 +814,9 @@ private fun ModuleCards(
             onOpen = onOpenSsh
         )
     }
-    Spacer(Modifier.height(14.dp))
+    // 底部那条玻璃导航栏是浮在内容上的，不留够一整条的高度，最后一张卡片的「进入 xxx」
+    // 就永远被压在栏子底下——滚到底也点不到。
+    Spacer(Modifier.navigationBarsPadding().height(92.dp))
 }
 
 @Composable

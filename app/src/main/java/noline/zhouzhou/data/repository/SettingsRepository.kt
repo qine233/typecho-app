@@ -44,6 +44,7 @@ class SettingsRepository(private val context: Context) {
         val BT_SITE = stringPreferencesKey("bt_site")
         val BT_KEY = stringPreferencesKey("bt_key_cipher")
         val BT_TRUST_SELF_SIGNED = booleanPreferencesKey("bt_trust_self_signed")
+        val BT_PROXY_ENGINE = stringPreferencesKey("bt_proxy_engine")
         val SSH_HOST = stringPreferencesKey("ssh_host")
         val SSH_PORT = intPreferencesKey("ssh_port")
         val SSH_USER = stringPreferencesKey("ssh_user")
@@ -268,6 +269,19 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setBtTrustSelfSigned(trust: Boolean) {
         context.dataStore.edit { it[Keys.BT_TRUST_SELF_SIGNED] = trust }
+    }
+
+    /**
+     * 反向代理那一块挂在哪个 web 服务器上（`nginx` / `apache` / `openresty`）。
+     *
+     * 这一段是路径 `/mod/proxy/com/<方法>/<stype>` 里的一段，不是参数，选错了整块都是空的。
+     * 面板没有「问得出装了哪个」的口，所以让人选一次记住，别每次进来猜。
+     */
+    val btProxyEngine: Flow<String> = context.dataStore.data
+        .map { it[Keys.BT_PROXY_ENGINE].orEmpty() }
+
+    suspend fun setBtProxyEngine(wire: String) {
+        context.dataStore.edit { it[Keys.BT_PROXY_ENGINE] = wire }
     }
 
     suspend fun clearBtConfig() {

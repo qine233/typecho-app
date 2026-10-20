@@ -41,6 +41,8 @@ import noline.zhouzhou.ui.screens.btpanel.BtFilesScreen
 import noline.zhouzhou.ui.screens.btpanel.BtFtpScreen
 import noline.zhouzhou.ui.screens.btpanel.BtMysqlToolsScreen
 import noline.zhouzhou.ui.screens.btpanel.BtPanelScreen
+import noline.zhouzhou.ui.screens.btpanel.BtProxyDetailScreen
+import noline.zhouzhou.ui.screens.btpanel.BtReverseProxyScreen
 import noline.zhouzhou.ui.screens.btpanel.BtSiteDetailScreen
 import noline.zhouzhou.ui.screens.btpanel.BtSitesScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
@@ -129,6 +131,22 @@ sealed class Screen(val route: String) {
 
     /** SSH 终端：直连面板所在服务器的交互式 shell。 */
     data object Ssh : Screen("settings/btpanel/ssh")
+
+    /** 反向代理：代理站点列表 + 新建/启停/备注/删。 */
+    data object BtProxy : Screen("settings/btpanel/proxy")
+
+    /**
+     * 单个代理站点的详情页。站点名要 encode（它就是域名，偶尔带端口）。
+     *
+     * 路由里**不带根目录**：这一格面板可能给空串，空串拼进路径就是一段多余的斜杠，
+     * 导航会匹配不上。详情页调的每一口都只认 `site_name` 和 `id`，目录在列表那行看就行。
+     */
+    data object BtProxyDetail : Screen("settings/btpanel/proxy/{proxyId}/{proxyName}/{proxyStatus}") {
+        fun createRoute(proxyId: String, proxyName: String, proxyStatus: String) =
+            "settings/btpanel/proxy/$proxyId/" +
+                android.net.Uri.encode(proxyName) + "/" +
+                android.net.Uri.encode(proxyStatus)
+    }
 
     /**
      * 单个库的详情页。库名和账号名都要 encode：
@@ -359,6 +377,7 @@ fun TypechoNavHost(
                         onOpenFtp = { navController.navigate(Screen.BtFtp.route) },
                         onOpenCron = { navController.navigate(Screen.BtCron.route) },
                         onOpenFiles = { navController.navigate(Screen.BtFiles.route) },
+                        onOpenProxy = { navController.navigate(Screen.BtProxy.route) },
                         onOpenSsh = { navController.navigate(Screen.Ssh.route) }
                     )
                 }
@@ -472,6 +491,45 @@ fun TypechoNavHost(
                 composable(Screen.Ssh.route) {
                     SshTerminalScreen(
                         appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.BtProxy.route) {
+                    BtReverseProxyScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        onOpenProxy = { entry ->
+                            navController.navigate(
+                                Screen.BtProxyDetail.createRoute(entry.id, entry.name, entry.statusText)
+                            )
+                        }
+                    )
+                }
+
+                composable(
+                    route = Screen.BtProxyDetail.route,
+                    arguments = listOf(
+                        navArgument("proxyId") { type = NavType.StringType },
+                        navArgument("proxyName") { type = NavType.StringType },
+                        navArgument("proxyStatus") { type = NavType.StringType }
+                    )
+                ) { entry ->
+                    // 详情页要调的每一口都只认站点名和那条代理的 id；状态原话带过来是为了
+                    // 这一进来就有「运行中/已停用」那一格，不用等面板再回一次。
+                    BtProxyDetailScreen(
+                        appContainer = appContainer,
+                        entry = noline.zhouzhou.data.model.BtReverseProxyEntry(
+                            id = entry.arguments?.getString("proxyId").orEmpty(),
+                            name = entry.arguments?.getString("proxyName").orEmpty(),
+                            path = "",
+                            statusText = entry.arguments?.getString("proxyStatus").orEmpty(),
+                            remark = "",
+                            addTime = "",
+                            expireTime = "",
+                            renamed = "",
+                            raw = kotlinx.serialization.json.JsonObject(emptyMap())
+                        ),
                         onBack = { navController.popBackStack() }
                     )
                 }

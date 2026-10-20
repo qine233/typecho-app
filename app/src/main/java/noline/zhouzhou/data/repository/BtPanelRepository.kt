@@ -21,6 +21,7 @@ import noline.zhouzhou.data.remote.BtFilesApi
 import noline.zhouzhou.data.remote.BtFtpApi
 import noline.zhouzhou.data.remote.BtIssue
 import noline.zhouzhou.data.remote.BtPanelApi
+import noline.zhouzhou.data.remote.BtProxyApi
 import noline.zhouzhou.data.remote.BtSiteApi
 import noline.zhouzhou.data.remote.BtServiceOp
 import noline.zhouzhou.data.remote.advice
@@ -74,6 +75,11 @@ class BtPanelRepository(
 
     suspend fun clearConfig() = settings.clearBtConfig()
 
+    /** 反向代理挂在哪个 web 服务器上；空串表示还没选过，界面按 Nginx 起手。 */
+    val proxyEngineFlow: Flow<String> get() = settings.btProxyEngine
+
+    suspend fun saveProxyEngine(wire: String) = settings.setBtProxyEngine(wire)
+
     suspend fun config(): BtPanelConfig = settings.btConfig.first()
 
     /** 网站模块的有类型客户端：配置、签名、失败分诊都复用这一份。 */
@@ -86,6 +92,9 @@ class BtPanelRepository(
     suspend fun cronClient(): BtCronApi = BtCronApi(api())
 
     suspend fun filesClient(): BtFilesApi = BtFilesApi(api())
+
+    /** 反向代理模块：路径风格，`/mod/proxy/com/…/<stype>`，动词只有 POST。 */
+    suspend fun proxyClient(): BtProxyApi = BtProxyApi(api())
 
     /** 改地址、改密钥、改「信任自签」之后必须换掉客户端，否则旧设置会一直用到进程重启。 */
     private suspend fun api(): BtPanelApi {
