@@ -68,6 +68,9 @@ class AppContainer(val application: Application) {
     val btCronRepository: BtCronRepository by lazy { BtCronRepository(btPanelRepository) }
     val btFilesRepository: BtFilesRepository by lazy { BtFilesRepository(btPanelRepository) }
     val btCatalogStore: BtCatalogStore by lazy { BtCatalogStore(application) }
+
+    /** SSH 会话挂在 App 级，退出终端页、切后台都不该把 shell 断了。 */
+    val sshRepository: SshRepository by lazy { SshRepository(application, settingsRepository) }
     val statusRepository: StatusRepository by lazy {
         StatusRepository(
             context = application,

@@ -7,6 +7,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import noline.zhouzhou.data.model.BtPanelConfig
 import noline.zhouzhou.data.model.CloudreveConfig
 import noline.zhouzhou.data.model.SiteConfig
+import noline.zhouzhou.data.model.SshAuthKind
+import noline.zhouzhou.data.model.SshHostKey
+import noline.zhouzhou.data.model.SshProfile
 import noline.zhouzhou.data.remote.GithubMirror
 import noline.zhouzhou.data.remote.UrlForm
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +44,14 @@ class SettingsRepository(private val context: Context) {
         val BT_SITE = stringPreferencesKey("bt_site")
         val BT_KEY = stringPreferencesKey("bt_key_cipher")
         val BT_TRUST_SELF_SIGNED = booleanPreferencesKey("bt_trust_self_signed")
+        val SSH_HOST = stringPreferencesKey("ssh_host")
+        val SSH_PORT = intPreferencesKey("ssh_port")
+        val SSH_USER = stringPreferencesKey("ssh_user")
+        val SSH_AUTH_KIND = stringPreferencesKey("ssh_auth_kind")
+        val SSH_CREDENTIAL = stringPreferencesKey("ssh_credential_cipher")
+        val SSH_PASSPHRASE = stringPreferencesKey("ssh_passphrase_cipher")
+        // 主机密钥不是秘密（本来就是公开的），明文存才能和服务器现算的指纹直接比。
+        val SSH_PINS = stringPreferencesKey("ssh_pinned_host_keys")
         val UPDATE_MIRROR = stringPreferencesKey("update_mirror_id")
         val STATUS_NOTIFICATION = booleanPreferencesKey("status_notification")
         val STATUS_AUTO_SYNC = booleanPreferencesKey("status_auto_sync")
@@ -269,6 +280,94 @@ class SettingsRepository(private val context: Context) {
 
     private suspend fun currentBtKeyCipher(): String =
         context.dataStore.data.map { it[Keys.BT_KEY].orEmpty() }.first()
+
+    // ── SSH 终端 ──
+
+    /** 登录密码和私钥正文跟面板密钥同一个规矩：盘上只有 Keystore 密文。 */
+    val sshConfig: Flow<SshProfile> = context.dataStore.data
+        .map { prefs ->
+            SshProfile(
+                host = prefs[Keys.SSH_HOST].orEmpty(),
+                port = prefs[Keys.SSH_PORT] ?: SshProfile.DefaultPort,
+                user = prefs[Keys.SSH_USER].orEmpty().ifBlank { SshProfile.DefaultUser },
+                authKind = if (prefs[Keys.SSH_AUTH_KIND] == SshAuthKind.PrivateKey.name) {
+                    SshAuthKind.PrivateKey
+                } else {
+                    SshAuthKind.Password
+                },
+                secret = prefs[Keys.SSH_CREDENTIAL]?.let(secretStore::decrypt).orEmpty(),
+                passphrase = prefs[Keys.SSH_PASSPHRASE]?.let(secretStore::decrypt).orEmpty()
+            )
+        }
+        .flowOn(Dispatchers.IO)
+
+    val sshConfigured: Flow<Boolean> = context.dataStore.data
+        .map { prefs ->
+            !prefs[Keys.SSH_HOST].isNullOrBlank() && !prefs[Keys.SSH_CREDENTIAL].isNullOrBlank()
+        }
+
+    /** 凭据留空 = 沿用已存的，和面板密钥一个规矩。 */
+    suspend fun saveSshConfig(profile: SshProfile) {
+        val host = profile.host.trim()
+        require(host.isNotBlank()) { "服务器地址不能为空" }
+        val stored = if (profile.secret.isBlank()) currentSshCredentialCipher()
+        else secretStore.encryptOrThrow(profile.secret)
+        require(stored.isNotBlank()) { "要填登录密码或私钥" }
+        // 私钥没口令时要把原来那条口令清掉，不然换了无口令的钥匙还解不开。
+        val passphrase = when {
+            profile.authKind != SshAuthKind.PrivateKey -> ""
+            profile.passphrase.isBlank() && profile.secret.isBlank() -> currentSshPassphraseCipher()
+            profile.passphrase.isBlank() -> ""
+            else -> secretStore.encryptOrThrow(profile.passphrase)
+        }
+        context.dataStore.edit { prefs ->
+            prefs[Keys.SSH_HOST] = host
+            prefs[Keys.SSH_PORT] = profile.port.coerceIn(1, 65535)
+            prefs[Keys.SSH_USER] = profile.user.trim().ifBlank { SshProfile.DefaultUser }
+            prefs[Keys.SSH_AUTH_KIND] = profile.authKind.name
+            prefs[Keys.SSH_CREDENTIAL] = stored
+            if (passphrase.isBlank()) prefs.remove(Keys.SSH_PASSPHRASE)
+            else prefs[Keys.SSH_PASSPHRASE] = passphrase
+        }
+    }
+
+    suspend fun clearSshConfig() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(Keys.SSH_HOST)
+            prefs.remove(Keys.SSH_PORT)
+            prefs.remove(Keys.SSH_USER)
+            prefs.remove(Keys.SSH_AUTH_KIND)
+            prefs.remove(Keys.SSH_CREDENTIAL)
+            prefs.remove(Keys.SSH_PASSPHRASE)
+        }
+    }
+
+    private suspend fun currentSshCredentialCipher(): String =
+        context.dataStore.data.map { it[Keys.SSH_CREDENTIAL].orEmpty() }.first()
+
+    private suspend fun currentSshPassphraseCipher(): String =
+        context.dataStore.data.map { it[Keys.SSH_PASSPHRASE].orEmpty() }.first()
+
+    // ── 已固定的服务器主机密钥 ──
+
+    val sshPins: Flow<List<SshHostKey>> = context.dataStore.data
+        .map { SshHostKey.fromText(it[Keys.SSH_PINS].orEmpty()) }
+
+    /** 同一台服务器只留一条：重装之后覆盖旧的，界面上仍然能看到「这次和上次不一样」。 */
+    suspend fun pinSshHostKey(key: SshHostKey) {
+        val rest = sshPins.first().filterNot { it.id == key.id }
+        context.dataStore.edit { prefs ->
+            prefs[Keys.SSH_PINS] = SshHostKey.toText(rest + key)
+        }
+    }
+
+    suspend fun unpinSshHostKey(id: String) {
+        val rest = sshPins.first().filterNot { it.id == id }
+        context.dataStore.edit { prefs ->
+            if (rest.isEmpty()) prefs.remove(Keys.SSH_PINS)
+            else prefs[Keys.SSH_PINS] = SshHostKey.toText(rest)
+        }
+    }
 
     // ── 搜索历史 ──
 

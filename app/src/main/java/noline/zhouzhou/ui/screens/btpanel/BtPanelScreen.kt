@@ -67,7 +67,8 @@ fun BtPanelScreen(
     onOpenDatabases: () -> Unit,
     onOpenFtp: () -> Unit,
     onOpenCron: () -> Unit,
-    onOpenFiles: () -> Unit
+    onOpenFiles: () -> Unit,
+    onOpenSsh: () -> Unit
 ) {
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -214,7 +215,7 @@ fun BtPanelScreen(
             if (state.dashboard != null) {
                 Spacer(Modifier.height(14.dp))
                 SitesCard(onOpenSites)
-                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles)
+                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles, onOpenSsh)
                 Spacer(Modifier.height(14.dp))
                 TableCard(state, viewModel) { pending = it }
                 Spacer(Modifier.height(14.dp))
@@ -231,7 +232,7 @@ fun BtPanelScreen(
                 }
             } else if (state.configured) {
                 Spacer(Modifier.height(14.dp))
-                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles)
+                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles, onOpenSsh)
                 Spacer(Modifier.height(12.dp))
                 ConsoleLink(onOpenConsole)
             }
@@ -734,7 +735,8 @@ private fun ModuleCards(
     onOpenDatabases: () -> Unit,
     onOpenFtp: () -> Unit,
     onOpenCron: () -> Unit,
-    onOpenFiles: () -> Unit
+    onOpenFiles: () -> Unit,
+    onOpenSsh: () -> Unit
 ) {
     val t = LocalNoLine.current
     Column(
@@ -743,7 +745,7 @@ private fun ModuleCards(
             .noLineCard(RoundedCornerShape(14.dp))
             .padding(16.dp)
     ) {
-        Text("还有四块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+        Text("还有五块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
         Spacer(Modifier.height(4.dp))
         Text(
             "这一格下面这几块和网站那张同理：动的都是服务器上的真东西，会丢数据的要亲手打一遍关键词。",
@@ -787,6 +789,16 @@ private fun ModuleCards(
                 "压缩、下载直链、递归改权限这台面板做不到，页底写清了原因。",
             cta = "进入文件管理器",
             onOpen = onOpenFiles
+        )
+        HorizontalDivider(color = t.hairline, modifier = Modifier.padding(vertical = 12.dp))
+        ModuleEntryCard(
+            icon = Icons.Default.Terminal,
+            title = "SSH 终端",
+            blurb = "直连这台服务器的交互式 shell，跟面板的网页接口是两条路：面板打不开、被改坏、nginx 挂了，" +
+                "这里照样能连上去修。`vim`、`top`、`htop` 照常跑，屏幕底下摆着手机键盘没有的 Esc、Ctrl、Tab、方向键。" +
+                "第一次连要亲手核对主机密钥指纹，密码和私钥只用系统密钥库存密文。",
+            cta = "打开终端",
+            onOpen = onOpenSsh
         )
     }
     Spacer(Modifier.height(14.dp))

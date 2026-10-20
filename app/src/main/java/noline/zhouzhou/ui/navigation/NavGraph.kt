@@ -54,6 +54,7 @@ import noline.zhouzhou.ui.screens.post.PostDetailScreen
 import noline.zhouzhou.ui.screens.search.SearchScreen
 import noline.zhouzhou.ui.screens.settings.SettingsScreen
 import noline.zhouzhou.ui.screens.settings.StorageScreen
+import noline.zhouzhou.ui.screens.ssh.SshTerminalScreen
 
 sealed class Screen(val route: String) {
     /** 首页带一个可选的分类参数，供详情页的 #话题 跳转复用。 */
@@ -125,6 +126,9 @@ sealed class Screen(val route: String) {
 
     /** 文件管理器：目录浏览 + 建/改名/移动/复制/软链/解压/上传/权限/删除 + 回收站 + 操作历史。 */
     data object BtFiles : Screen("settings/btpanel/files")
+
+    /** SSH 终端：直连面板所在服务器的交互式 shell。 */
+    data object Ssh : Screen("settings/btpanel/ssh")
 
     /**
      * 单个库的详情页。库名和账号名都要 encode：
@@ -354,7 +358,8 @@ fun TypechoNavHost(
                         onOpenDatabases = { navController.navigate(Screen.BtDatabases.route) },
                         onOpenFtp = { navController.navigate(Screen.BtFtp.route) },
                         onOpenCron = { navController.navigate(Screen.BtCron.route) },
-                        onOpenFiles = { navController.navigate(Screen.BtFiles.route) }
+                        onOpenFiles = { navController.navigate(Screen.BtFiles.route) },
+                        onOpenSsh = { navController.navigate(Screen.Ssh.route) }
                     )
                 }
 
@@ -459,6 +464,13 @@ fun TypechoNavHost(
 
                 composable(Screen.BtFiles.route) {
                     BtFilesScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.Ssh.route) {
+                    SshTerminalScreen(
                         appContainer = appContainer,
                         onBack = { navController.popBackStack() }
                     )
