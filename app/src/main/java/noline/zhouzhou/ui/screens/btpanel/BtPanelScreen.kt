@@ -13,6 +13,8 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.FolderShared
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -59,7 +61,9 @@ fun BtPanelScreen(
     appContainer: AppContainer,
     onBack: () -> Unit,
     onOpenConsole: () -> Unit,
-    onOpenSites: () -> Unit
+    onOpenSites: () -> Unit,
+    onOpenDatabases: () -> Unit,
+    onOpenFtp: () -> Unit
 ) {
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -206,6 +210,7 @@ fun BtPanelScreen(
             if (state.dashboard != null) {
                 Spacer(Modifier.height(14.dp))
                 SitesCard(onOpenSites)
+                ModuleCards(onOpenDatabases, onOpenFtp)
                 Spacer(Modifier.height(14.dp))
                 TableCard(state, viewModel) { pending = it }
                 Spacer(Modifier.height(14.dp))
@@ -222,6 +227,8 @@ fun BtPanelScreen(
                 }
             } else if (state.configured) {
                 Spacer(Modifier.height(14.dp))
+                ModuleCards(onOpenDatabases, onOpenFtp)
+                Spacer(Modifier.height(12.dp))
                 ConsoleLink(onOpenConsole)
             }
             Spacer(Modifier.height(20.dp + tabBarInset))
@@ -709,6 +716,74 @@ private fun SitesCard(onOpen: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
             Text("进入网站管理", fontSize = 13.5.sp)
+        }
+    }
+}
+
+/**
+ * 数据库 / FTP 两个模块的入口，长得和网站那张一样是一整块卡片。
+ *
+ * 面板的看板没读成功的时候这里也摆：这两页各自会自己去问 `/data`，不靠看板的数据。
+ */
+@Composable
+private fun ModuleCards(onOpenDatabases: () -> Unit, onOpenFtp: () -> Unit) {
+    val t = LocalNoLine.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .noLineCard(RoundedCornerShape(14.dp))
+            .padding(16.dp)
+    ) {
+        Text("还有两块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "这一格下面的两块和网站那张同理：动的都是服务器上的真东西，会丢数据的要亲手打一遍关键词。",
+            fontSize = 11.5.sp,
+            color = t.textLight,
+            lineHeight = 17.sp
+        )
+        Spacer(Modifier.height(10.dp))
+        ModuleEntryCard(
+            icon = Icons.Default.Storage,
+            title = "数据库管理",
+            blurb = "库列表里建库、备份、删库；点进单个库看大小与表、授权、备份文件。" +
+                "MySQL 那一页还能改超时、清 Binlog、开关守护进程、加删账户、读错误与慢查询日志。",
+            cta = "进入数据库管理",
+            onOpen = onOpenDatabases
+        )
+        HorizontalDivider(color = t.hairline, modifier = Modifier.padding(vertical = 12.dp))
+        ModuleEntryCard(
+            icon = Icons.Default.FolderShared,
+            title = "FTP 管理",
+            blurb = "账户列表里建号、暂停/启用、改密码（能批量）、设限速与容量上限、看登录和操作日志、删号。" +
+                "备注和根目录面板接口改不了，这一页就只能读。",
+            cta = "进入 FTP 管理",
+            onOpen = onOpenFtp
+        )
+    }
+    Spacer(Modifier.height(14.dp))
+}
+
+@Composable
+private fun ModuleEntryCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    blurb: String,
+    cta: String,
+    onOpen: () -> Unit
+) {
+    val t = LocalNoLine.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(17.dp), tint = t.accent)
+            Spacer(Modifier.width(8.dp))
+            Text(title, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = t.textStrong)
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(blurb, fontSize = 12.sp, color = t.textSecondary, lineHeight = 18.sp)
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+            Text(cta, fontSize = 13.5.sp)
         }
     }
 }

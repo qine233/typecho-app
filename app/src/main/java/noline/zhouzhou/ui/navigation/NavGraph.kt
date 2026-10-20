@@ -34,6 +34,10 @@ import noline.zhouzhou.ui.screens.admin.PagesScreen
 import noline.zhouzhou.ui.screens.bills.BillReportScreen
 import noline.zhouzhou.ui.screens.bills.BillsScreen
 import noline.zhouzhou.ui.screens.btpanel.BtConsoleScreen
+import noline.zhouzhou.ui.screens.btpanel.BtDatabaseDetailScreen
+import noline.zhouzhou.ui.screens.btpanel.BtDatabasesScreen
+import noline.zhouzhou.ui.screens.btpanel.BtFtpScreen
+import noline.zhouzhou.ui.screens.btpanel.BtMysqlToolsScreen
 import noline.zhouzhou.ui.screens.btpanel.BtPanelScreen
 import noline.zhouzhou.ui.screens.btpanel.BtSiteDetailScreen
 import noline.zhouzhou.ui.screens.btpanel.BtSitesScreen
@@ -103,6 +107,27 @@ sealed class Screen(val route: String) {
             "settings/btpanel/site/$siteId/" +
                 android.net.Uri.encode(siteName) + "/" +
                 android.net.Uri.encode(sitePath)
+    }
+
+    /** 数据库管理：库列表 + 建/备/删 + 单库详情。 */
+    data object BtDatabases : Screen("settings/btpanel/databases")
+
+    /** MySQL 管理：运行时读数 + 超时 / Binlog / 守护进程 / 账户。 */
+    data object BtMysqlTools : Screen("settings/btpanel/mysql")
+
+    /** FTP 管理：账户列表 + 建/停/改密码/限额/日志/删。 */
+    data object BtFtp : Screen("settings/btpanel/ftp")
+
+    /**
+     * 单个库的详情页。库名和账号名都要 encode：
+     * 面板允许点号和中划线，偶尔也有以数字打头的名字，路由本身不挑，但访问来源那一格带逗号要转义。
+     */
+    data object BtDatabaseDetail : Screen("settings/btpanel/db/{dbId}/{dbName}/{dbUser}/{dbSid}") {
+        fun createRoute(dbId: String, dbName: String, dbUser: String, dbSid: String) =
+            "settings/btpanel/db/$dbId/" +
+                android.net.Uri.encode(dbName) + "/" +
+                android.net.Uri.encode(dbUser) + "/" +
+                dbSid
     }
 }
 
@@ -317,7 +342,9 @@ fun TypechoNavHost(
                         appContainer = appContainer,
                         onBack = { navController.popBackStack() },
                         onOpenConsole = { navController.navigate(Screen.BtConsole.route) },
-                        onOpenSites = { navController.navigate(Screen.BtSites.route) }
+                        onOpenSites = { navController.navigate(Screen.BtSites.route) },
+                        onOpenDatabases = { navController.navigate(Screen.BtDatabases.route) },
+                        onOpenFtp = { navController.navigate(Screen.BtFtp.route) }
                     )
                 }
 
@@ -352,6 +379,62 @@ fun TypechoNavHost(
 
                 composable(Screen.BtConsole.route) {
                     BtConsoleScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.BtDatabases.route) {
+                    BtDatabasesScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        onOpenDb = { db ->
+                            navController.navigate(
+                                Screen.BtDatabaseDetail.createRoute(db.id, db.name, db.user, db.sid)
+                            )
+                        },
+                        onOpenTools = { navController.navigate(Screen.BtMysqlTools.route) }
+                    )
+                }
+
+                composable(
+                    route = Screen.BtDatabaseDetail.route,
+                    arguments = listOf(
+                        navArgument("dbId") { type = NavType.StringType },
+                        navArgument("dbName") { type = NavType.StringType },
+                        navArgument("dbUser") { type = NavType.StringType },
+                        navArgument("dbSid") { type = NavType.StringType }
+                    )
+                ) { entry ->
+                    // 列表行上的十个字段只有这四个进得了路由；其余（访问来源、备注、占用）
+                    // 详情页自己按库名再问一遍面板，不从列表那边假装带过来。
+                    BtDatabaseDetailScreen(
+                        appContainer = appContainer,
+                        database = noline.zhouzhou.data.model.BtDatabase(
+                            id = entry.arguments?.getString("dbId").orEmpty(),
+                            name = entry.arguments?.getString("dbName").orEmpty(),
+                            user = entry.arguments?.getString("dbUser").orEmpty(),
+                            accept = "",
+                            remark = "",
+                            addTime = "",
+                            sid = entry.arguments?.getString("dbSid").orEmpty(),
+                            engine = "MySQL",
+                            backupCount = null,
+                            usedBytes = null
+                        ),
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.BtMysqlTools.route) {
+                    BtMysqlToolsScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.BtFtp.route) {
+                    BtFtpScreen(
                         appContainer = appContainer,
                         onBack = { navController.popBackStack() }
                     )

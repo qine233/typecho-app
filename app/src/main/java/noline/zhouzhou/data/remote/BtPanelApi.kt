@@ -82,7 +82,9 @@ internal enum class BtModule(val path: String) {
     System("system"),
     Data("data"),
     Crontab("crontab"),
-    Site("site")
+    Site("site"),
+    Database("database"),
+    Ftp("ftp")
 }
 
 data class BtRequest(

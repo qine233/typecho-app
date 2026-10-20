@@ -63,6 +63,8 @@ class AppContainer(val application: Application) {
     }
     val btPanelRepository: BtPanelRepository by lazy { BtPanelRepository(settingsRepository) }
     val btSiteRepository: BtSiteRepository by lazy { BtSiteRepository(btPanelRepository) }
+    val btDatabaseRepository: BtDatabaseRepository by lazy { BtDatabaseRepository(btPanelRepository) }
+    val btFtpRepository: BtFtpRepository by lazy { BtFtpRepository(btPanelRepository) }
     val btCatalogStore: BtCatalogStore by lazy { BtCatalogStore(application) }
     val statusRepository: StatusRepository by lazy {
         StatusRepository(
