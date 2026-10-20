@@ -81,7 +81,8 @@ enum class BtServiceOp(val wire: String, val label: String) {
 internal enum class BtModule(val path: String) {
     System("system"),
     Data("data"),
-    Crontab("crontab")
+    Crontab("crontab"),
+    Site("site")
 }
 
 data class BtRequest(
@@ -260,7 +261,7 @@ class BtPanelApi(
 
     // ── 内部 ──
 
-    private suspend fun call(
+    internal suspend fun call(
         module: BtModule,
         action: String,
         params: Map<String, String> = emptyMap()

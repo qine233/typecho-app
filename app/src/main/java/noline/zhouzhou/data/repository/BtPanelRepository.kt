@@ -17,6 +17,7 @@ import noline.zhouzhou.data.model.btSystemSnapshot
 import noline.zhouzhou.data.remote.BtException
 import noline.zhouzhou.data.remote.BtIssue
 import noline.zhouzhou.data.remote.BtPanelApi
+import noline.zhouzhou.data.remote.BtSiteApi
 import noline.zhouzhou.data.remote.BtServiceOp
 import noline.zhouzhou.data.remote.advice
 import kotlinx.coroutines.flow.Flow
@@ -70,6 +71,9 @@ class BtPanelRepository(
     suspend fun clearConfig() = settings.clearBtConfig()
 
     suspend fun config(): BtPanelConfig = settings.btConfig.first()
+
+    /** 网站模块的有类型客户端：配置、签名、失败分诊都复用这一份。 */
+    suspend fun siteClient(): BtSiteApi = BtSiteApi(api())
 
     /** 改地址、改密钥、改「信任自签」之后必须换掉客户端，否则旧设置会一直用到进程重启。 */
     private suspend fun api(): BtPanelApi {

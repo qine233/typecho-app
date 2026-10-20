@@ -8,7 +8,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Terminal
@@ -56,7 +58,8 @@ private sealed interface PendingAction {
 fun BtPanelScreen(
     appContainer: AppContainer,
     onBack: () -> Unit,
-    onOpenConsole: () -> Unit
+    onOpenConsole: () -> Unit,
+    onOpenSites: () -> Unit
 ) {
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -200,14 +203,15 @@ fun BtPanelScreen(
 
             // 没真读到看板之前不摆表格和服务按钮：配置存了不等于连上了，
             // 这时候给一张「站点 · 0 条」的空表，看着像面板说它是 0。
-            // 调用台是个例外——看板超时不代表单条接口发不出去，别把人挡在外面。
             if (state.dashboard != null) {
+                Spacer(Modifier.height(14.dp))
+                SitesCard(onOpenSites)
                 Spacer(Modifier.height(14.dp))
                 TableCard(state, viewModel) { pending = it }
                 Spacer(Modifier.height(14.dp))
-                ConsoleCard(onOpenConsole)
-                Spacer(Modifier.height(14.dp))
                 ServiceCard(state, viewModel) { pending = it }
+                Spacer(Modifier.height(12.dp))
+                ConsoleLink(onOpenConsole)
 
                 if (state.logTitle.isNotBlank()) {
                     LogDialog(
@@ -218,7 +222,7 @@ fun BtPanelScreen(
                 }
             } else if (state.configured) {
                 Spacer(Modifier.height(14.dp))
-                ConsoleCard(onOpenConsole)
+                ConsoleLink(onOpenConsole)
             }
             Spacer(Modifier.height(20.dp + tabBarInset))
         }
@@ -673,11 +677,11 @@ private fun RowCard(
 }
 
 /**
- * 通用调用台的入口。这一页上面只有看板 + 四张表 + 四个服务动作，
- * 面板真正能干的活远不止这些，所以把官方文档那整套餐都开一格给人翻。
+ * 网站管理入口。面板上真正天天要动的东西都在这里：建站、停站、域名、
+ * 伪静态、SSL、重定向、反向代理、日志、限流、备份。
  */
 @Composable
-private fun ConsoleCard(onOpen: () -> Unit) {
+private fun SitesCard(onOpen: () -> Unit) {
     val t = LocalNoLine.current
     Column(
         modifier = Modifier
@@ -687,25 +691,55 @@ private fun ConsoleCard(onOpen: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Default.Terminal, contentDescription = null,
+                Icons.Default.Language, contentDescription = null,
                 modifier = Modifier.size(17.dp), tint = t.accent
             )
             Spacer(Modifier.width(8.dp))
-            Text("全部接口 · 通用调用台", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+            Text("网站管理", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            "官方接口文档里的每一条都能在这里翻到：选模块、搜接口、填参数、发出去。" +
-                "只读的点了就跑，会改的问一句，会删的要亲手打一遍「删除」。" +
-                "回包一律先把密码、私钥那类字段涂掉再摆出来。",
+            "站点列表里直接建、停、删；点进某个站点还能改域名、PHP 版本、运行目录、默认文档、" +
+                "伪静态、SSL 证书、重定向、反向代理、访问日志、限流、密码目录、到期时间和备份。" +
+                "改动的都是服务器上真实的东西，会删的要亲手打一遍关键词才放行。",
             fontSize = 12.sp,
             color = t.textSecondary,
             lineHeight = 18.sp
         )
         Spacer(Modifier.height(10.dp))
-        FilledTonalButton(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
-            Text("打开调用台", fontSize = 13.5.sp)
+        Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+            Text("进入网站管理", fontSize = 13.5.sp)
         }
+    }
+}
+
+/**
+ * 通用调用台降级成一行文字入口：正经操作都有专门的页面了，
+ * 这里只留一格给那些还没做成界面的接口。
+ */
+@Composable
+private fun ConsoleLink(onOpen: () -> Unit) {
+    val t = LocalNoLine.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .noLineCard(RoundedCornerShape(12.dp))
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.Terminal, contentDescription = null,
+            modifier = Modifier.size(15.dp), tint = t.textSecondary
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "全部接口 · 通用调用台",
+            fontSize = 13.sp,
+            color = t.textSecondary,
+            modifier = Modifier.weight(1f)
+        )
+        Text("没有专门页面的接口在这里翻", fontSize = 11.sp, color = t.textLight)
     }
 }
 

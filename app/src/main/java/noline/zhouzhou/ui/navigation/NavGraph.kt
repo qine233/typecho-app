@@ -35,6 +35,8 @@ import noline.zhouzhou.ui.screens.bills.BillReportScreen
 import noline.zhouzhou.ui.screens.bills.BillsScreen
 import noline.zhouzhou.ui.screens.btpanel.BtConsoleScreen
 import noline.zhouzhou.ui.screens.btpanel.BtPanelScreen
+import noline.zhouzhou.ui.screens.btpanel.BtSiteDetailScreen
+import noline.zhouzhou.ui.screens.btpanel.BtSitesScreen
 import noline.zhouzhou.ui.screens.diary.DiaryScreen
 import noline.zhouzhou.ui.screens.drive.DriveScreen
 import noline.zhouzhou.ui.screens.drive.ShareScreen
@@ -88,6 +90,20 @@ sealed class Screen(val route: String) {
 
     /** 通用调用台：官方文档里那 329 条接口都从宝塔页这一格进去。 */
     data object BtConsole : Screen("settings/btpanel/console")
+
+    /** 网站管理：站点列表 + 建/停/删。 */
+    data object BtSites : Screen("settings/btpanel/sites")
+
+    /**
+     * 单个站点的各页签。域名和路径都要 encode：
+     * 路径天生带斜杠，域名偶尔带端口，直接拼进路由会被切成额外的段。
+     */
+    data object BtSiteDetail : Screen("settings/btpanel/site/{siteId}/{siteName}/{sitePath}") {
+        fun createRoute(siteId: String, siteName: String, sitePath: String) =
+            "settings/btpanel/site/$siteId/" +
+                android.net.Uri.encode(siteName) + "/" +
+                android.net.Uri.encode(sitePath)
+    }
 }
 
 private val HomeTab = TabSpec(
@@ -300,7 +316,37 @@ fun TypechoNavHost(
                     BtPanelScreen(
                         appContainer = appContainer,
                         onBack = { navController.popBackStack() },
-                        onOpenConsole = { navController.navigate(Screen.BtConsole.route) }
+                        onOpenConsole = { navController.navigate(Screen.BtConsole.route) },
+                        onOpenSites = { navController.navigate(Screen.BtSites.route) }
+                    )
+                }
+
+                composable(Screen.BtSites.route) {
+                    BtSitesScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() },
+                        onOpenSite = { site ->
+                            navController.navigate(
+                                Screen.BtSiteDetail.createRoute(site.id, site.name, site.path)
+                            )
+                        }
+                    )
+                }
+
+                composable(
+                    route = Screen.BtSiteDetail.route,
+                    arguments = listOf(
+                        navArgument("siteId") { type = NavType.StringType },
+                        navArgument("siteName") { type = NavType.StringType },
+                        navArgument("sitePath") { type = NavType.StringType }
+                    )
+                ) { entry ->
+                    BtSiteDetailScreen(
+                        appContainer = appContainer,
+                        siteId = entry.arguments?.getString("siteId").orEmpty(),
+                        siteName = entry.arguments?.getString("siteName").orEmpty(),
+                        sitePath = entry.arguments?.getString("sitePath").orEmpty(),
+                        onBack = { navController.popBackStack() }
                     )
                 }
 
