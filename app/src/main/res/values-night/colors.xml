@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="widget_primary_bg">#8A9BFF</color>
-    <color name="widget_card_bg">#1B1C20</color>
-    <color name="widget_card_border">#3D3D3F</color>
+    <color name="widget_card_bg_top">#DE23242A</color>
+    <color name="widget_card_bg">#C2181920</color>
+    <color name="widget_glass_sheen">#29FFFFFF</color>
+    <!-- 深色底下的玻璃边缘靠一道白色高光，而不是灰线 -->
+    <color name="widget_card_border">#42FFFFFF</color>
+    <color name="widget_primary_bg_top">#97A6FF</color>
+    <color name="widget_primary_bg">#7E90FA</color>
     <color name="widget_preview_text">#F7F7FA</color>
     <color name="widget_preview_faint">#6E7280</color>
     <color name="widget_preview_track">#33353B</color>

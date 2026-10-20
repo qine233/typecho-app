@@ -158,7 +158,7 @@ private val SoftText = ColorProvider(LightNoLine.textSecondary, DarkNoLine.textS
 private val FaintText = ColorProvider(LightNoLine.textLight, DarkNoLine.textLight)
 private val AccentColor = ColorProvider(LightNoLine.accent, DarkNoLine.accent)
 private val AccentOnColor = ColorProvider(LightNoLine.onBrand, DarkNoLine.onBrand)
-private val TrackColor = ColorProvider(Color(0xFFE9ECF5), Color(0xFF33353B))
+private val TrackColor = ColorProvider(Color(0x80C6D0EC), Color(0x4DFFFFFF))
 private val OverColor = ColorProvider(LightNoLine.healthObese, DarkNoLine.healthObese)
 private val WarnColor = ColorProvider(LightNoLine.healthOver, DarkNoLine.healthOver)
 
@@ -173,7 +173,9 @@ private val WarnColor = ColorProvider(LightNoLine.healthOver, DarkNoLine.healthO
  * 流水行的品名列是死宽（[RowTitleMaxChars] 在算文案时就截好，Glance 不会自己打点）。
  *
  * 圆角不走 Glance 的 cornerRadius（那是 API 31 起的东西，minSdk 26 用不了），
- * 根背景给的是 [R.drawable.widget_card_bg] 那张 shape：圆角外面是透明的，桌面露壁纸。
+ * 根背景给的是 [R.drawable.widget_card_bg] 那张 layer-list：上亮下暗的半透明玻璃，
+ * 圆角外面是透明的，壁纸直接透到卡片底下。想再「磨砂」一点只能靠透——
+ * Glance 1.1.1 既没有 blur 也没有 alpha 修饰符（拆 AAR 确认过），模糊得桌面进程自己会做，App 侧给不了。
  */
 /**
  * 卡片上每一条留白。3×3 那一格桌面只给 311dp，扣掉内容正好剩 9dp，

@@ -1,13 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  卡片本体。Glance 的 cornerRadius 要 API 31，minSdk 26 只能用 shape drawable
+  卡片本体 = 一层磨砂玻璃。Glance 的 cornerRadius 要 API 31，minSdk 26 只能用 shape drawable
   当根背景：圆角外的像素是透明的，桌面露出壁纸，圆角多大由这里说了算。
+
+  三层从下往上叠：
+  1. 上亮下暗的半透明渐变——壁纸真的透得进来（RemoteViews 画不了真模糊，只能靠透）；
+  2. 顶部一层薄光（往下一路淡到透明）——玻璃的那道高光，没有它半透明看着像「脏」；
+  3. 一圈 1dp 描边——深色给白色高光边，浅色给冷灰边，负责把卡片从壁纸上「抠」出来。
+  每层都得自己带 corners，圆角不统一就会漏出直角。
 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/widget_card_bg" />
-    <stroke
-        android:width="1dp"
-        android:color="@color/widget_card_border" />
-    <corners android:radius="22dp" />
-</shape>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:endColor="@color/widget_card_bg"
+                android:startColor="@color/widget_card_bg_top"
+                android:type="linear" />
+            <corners android:radius="22dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:endColor="@android:color/transparent"
+                android:startColor="@color/widget_glass_sheen"
+                android:type="linear" />
+            <corners android:radius="22dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/widget_card_border" />
+            <corners android:radius="22dp" />
+        </shape>
+    </item>
+</layer-list>

@@ -139,7 +139,7 @@ private val SoftText = ColorProvider(LightNoLine.textSecondary, DarkNoLine.textS
 private val FaintText = ColorProvider(LightNoLine.textLight, DarkNoLine.textLight)
 private val AccentColor = ColorProvider(LightNoLine.accent, DarkNoLine.accent)
 private val AccentOnColor = ColorProvider(LightNoLine.onBrand, DarkNoLine.onBrand)
-private val TrackColor = ColorProvider(Color(0xFFE9ECF5), Color(0xFF33353B))
+private val TrackColor = ColorProvider(Color(0x80C6D0EC), Color(0x4DFFFFFF))
 
 /** 站点把涨跌直接交给 BMI 语义色：降绿升橙，概览页就是这么画的。 */
 private val DownColor = ColorProvider(LightNoLine.healthNormal, DarkNoLine.healthNormal)

@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 小组件里唯一画不进 ColorProvider 的东西：Glance 的圆角背景只能给一张 drawable，
-         而它是在桌面进程里解析的，所以只能靠 -night 目录跟着系统深色走。 -->
-    <color name="widget_primary_bg">#425AEF</color>
-    <color name="widget_card_bg">#FFFFFF</color>
-    <color name="widget_card_border">#E3E8F7</color>
+         而它是在桌面进程里解析的，所以只能靠 -night 目录跟着系统深色走。
+
+         卡片是「磨砂玻璃」而不是平色：上亮下暗的一段半透明渐变 + 顶部一层薄光 + 一圈描边。
+         半透明是真半透明（桌面壁纸会从卡片底下透出来），但 RemoteViews 画不了真模糊
+         （Glance 1.1.1 没有 blur / alpha 修饰符，拆 AAR 确认过），所以玻璃感全靠这三层拼。 -->
+    <color name="widget_card_bg_top">#E8FFFFFF</color>
+    <color name="widget_card_bg">#C9FFFFFF</color>
+    <color name="widget_glass_sheen">#24FFFFFF</color>
+    <color name="widget_card_border">#80C9D2EE</color>
+    <color name="widget_primary_bg_top">#4E65F5</color>
+    <color name="widget_primary_bg">#3A50DE</color>
     <!-- 下面四个只在选取器的示意图 widget_preview_* 里用，真卡片是 Glance 画的 -->
     <color name="widget_preview_text">#363636</color>
     <color name="widget_preview_faint">#B6BAC9</color>
