@@ -159,7 +159,8 @@ private fun trendColor(trend: WidgetTrend) = when (trend) {
  * 十个子元素，超了静默截断），右对齐靠「fillMaxWidth + TextAlign.End」，
  * 明细行的首列是死宽。根背景和买菜卡同一套：能拿到壁纸就现糊一张毛玻璃
  * （[widgetGlassBackground]），拿不到退回 shape——Glance 的 cornerRadius 要 API 31，
- * minSdk 26 只能这么画圆角。
+ * minSdk 26 只能这么画圆角。根 View 上还压一层全透明背景，专门用来挡住桌面
+ * 自作主张垫在卡片后面的那块底板（买菜卡那边有详细解释）。
  */
 @Composable
 private fun HealthWidgetContent(spec: WidgetSpec, data: HealthWidgetData, glass: Bitmap?) {
@@ -169,6 +170,7 @@ private fun HealthWidgetContent(spec: WidgetSpec, data: HealthWidgetData, glass:
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
+            .background(ColorProvider(Color.Transparent, Color.Transparent))
             .background(if (glass != null) ImageProvider(glass) else ImageProvider(R.drawable.widget_card_bg))
             .padding(
                 horizontal = if (wide) 18.dp else 15.dp,
