@@ -2,6 +2,7 @@ package noline.zhouzhou.ui.widget
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -123,7 +124,8 @@ private suspend fun GlanceAppWidget.provideBills(context: Context, id: GlanceId,
     val heightDp = runCatching { cardHeightDp(context, id) }.getOrNull()
     val data = runCatching { loadBillsWidgetData(context, spec, heightDp) }
         .getOrElse { BillsWidgetData.unavailable() }
-    provideContent { BillsWidgetContent(spec, data) }
+    val glass = widgetGlassBackground(context, id)
+    provideContent { BillsWidgetContent(spec, data, glass) }
 }
 
 /**
@@ -172,10 +174,10 @@ private val WarnColor = ColorProvider(LightNoLine.healthOver, DarkNoLine.healthO
  * 右对齐一律靠「fillMaxWidth + TextAlign.End」，
  * 流水行的品名列是死宽（[RowTitleMaxChars] 在算文案时就截好，Glance 不会自己打点）。
  *
- * 圆角不走 Glance 的 cornerRadius（那是 API 31 起的东西，minSdk 26 用不了），
- * 根背景给的是 [R.drawable.widget_card_bg] 那张 layer-list：上亮下暗的半透明玻璃，
- * 圆角外面是透明的，壁纸直接透到卡片底下。想再「磨砂」一点只能靠透——
- * Glance 1.1.1 既没有 blur 也没有 alpha 修饰符（拆 AAR 确认过），模糊得桌面进程自己会做，App 侧给不了。
+ * 圆角不走 Glance 的 cornerRadius（那是 API 31 起的东西，minSdk 26 用不了），根背景是画好的：
+ * 能拿到壁纸就现糊一张毛玻璃位图（[widgetGlassBackground]），拿不到才退回
+ * [R.drawable.widget_card_bg] 那张半透明 layer-list。Glance 1.1.1 既没有 blur 也没有 alpha
+ * 修饰符（拆 AAR 确认过），所以「磨砂」只能是把糊好的图当背景递进去。
  */
 /**
  * 卡片上每一条留白。3×3 那一格桌面只给 311dp，扣掉内容正好剩 9dp，
@@ -197,14 +199,14 @@ private val ButtonGap = 6.dp
 private val PlainGapTop = 4.dp
 
 @Composable
-private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData) {
+private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData, glass: Bitmap?) {
     val context = LocalContext.current
     val wide = spec.wide
 
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ImageProvider(R.drawable.widget_card_bg))
+            .background(if (glass != null) ImageProvider(glass) else ImageProvider(R.drawable.widget_card_bg))
             .padding(
                 horizontal = if (wide) CardPaddingHorizontalWide else CardPaddingHorizontalNarrow,
                 vertical = CardPaddingVertical

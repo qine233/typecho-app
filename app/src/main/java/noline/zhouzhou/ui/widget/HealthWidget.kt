@@ -1,6 +1,7 @@
 package noline.zhouzhou.ui.widget
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
@@ -56,17 +57,17 @@ import noline.zhouzhou.ui.theme.LightNoLine
  */
 class HealthWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) =
-        provideHealth(context, WidgetSpec.Full)
+        provideHealth(context, id, WidgetSpec.Full)
 }
 
 class HealthWidgetMedium : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) =
-        provideHealth(context, WidgetSpec.Medium)
+        provideHealth(context, id, WidgetSpec.Medium)
 }
 
 class HealthWidgetCompact : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) =
-        provideHealth(context, WidgetSpec.Compact)
+        provideHealth(context, id, WidgetSpec.Compact)
 }
 
 class HealthWidgetReceiver : GlanceAppWidgetReceiver() {
@@ -115,10 +116,11 @@ suspend fun refreshHealthWidget(context: Context) {
     updateAllHealthWidgets(context.applicationContext)
 }
 
-private suspend fun GlanceAppWidget.provideHealth(context: Context, spec: WidgetSpec) {
+private suspend fun GlanceAppWidget.provideHealth(context: Context, id: GlanceId, spec: WidgetSpec) {
     val data = runCatching { loadHealthWidgetData(context, spec) }
         .getOrElse { HealthWidgetData.unavailable() }
-    provideContent { HealthWidgetContent(spec, data) }
+    val glass = widgetGlassBackground(context, id)
+    provideContent { HealthWidgetContent(spec, data, glass) }
 }
 
 private suspend fun loadHealthWidgetData(context: Context, spec: WidgetSpec): HealthWidgetData {
@@ -155,18 +157,19 @@ private fun trendColor(trend: WidgetTrend) = when (trend) {
 /**
  * 排版吃的是 [BillsWidgetContent] 那一套：外层 Column 只有六段（Glance 每个容器最多
  * 十个子元素，超了静默截断），右对齐靠「fillMaxWidth + TextAlign.End」，
- * 明细行的首列是死宽。根背景是 [R.drawable.widget_card_bg] 那张 shape——
- * Glance 的 cornerRadius 要 API 31，minSdk 26 只能这么画圆角。
+ * 明细行的首列是死宽。根背景和买菜卡同一套：能拿到壁纸就现糊一张毛玻璃
+ * （[widgetGlassBackground]），拿不到退回 shape——Glance 的 cornerRadius 要 API 31，
+ * minSdk 26 只能这么画圆角。
  */
 @Composable
-private fun HealthWidgetContent(spec: WidgetSpec, data: HealthWidgetData) {
+private fun HealthWidgetContent(spec: WidgetSpec, data: HealthWidgetData, glass: Bitmap?) {
     val context = LocalContext.current
     val wide = spec.wide
 
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ImageProvider(R.drawable.widget_card_bg))
+            .background(if (glass != null) ImageProvider(glass) else ImageProvider(R.drawable.widget_card_bg))
             .padding(
                 horizontal = if (wide) 18.dp else 15.dp,
                 vertical = if (wide) 13.dp else 12.dp
