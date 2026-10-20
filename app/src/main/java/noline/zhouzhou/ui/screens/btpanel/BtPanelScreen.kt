@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Terminal
@@ -65,7 +66,8 @@ fun BtPanelScreen(
     onOpenSites: () -> Unit,
     onOpenDatabases: () -> Unit,
     onOpenFtp: () -> Unit,
-    onOpenCron: () -> Unit
+    onOpenCron: () -> Unit,
+    onOpenFiles: () -> Unit
 ) {
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -212,7 +214,7 @@ fun BtPanelScreen(
             if (state.dashboard != null) {
                 Spacer(Modifier.height(14.dp))
                 SitesCard(onOpenSites)
-                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron)
+                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles)
                 Spacer(Modifier.height(14.dp))
                 TableCard(state, viewModel) { pending = it }
                 Spacer(Modifier.height(14.dp))
@@ -229,7 +231,7 @@ fun BtPanelScreen(
                 }
             } else if (state.configured) {
                 Spacer(Modifier.height(14.dp))
-                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron)
+                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron, onOpenFiles)
                 Spacer(Modifier.height(12.dp))
                 ConsoleLink(onOpenConsole)
             }
@@ -728,7 +730,12 @@ private fun SitesCard(onOpen: () -> Unit) {
  * 面板的看板没读成功的时候这里也摆：这两页各自会自己去问 `/data`，不靠看板的数据。
  */
 @Composable
-private fun ModuleCards(onOpenDatabases: () -> Unit, onOpenFtp: () -> Unit, onOpenCron: () -> Unit) {
+private fun ModuleCards(
+    onOpenDatabases: () -> Unit,
+    onOpenFtp: () -> Unit,
+    onOpenCron: () -> Unit,
+    onOpenFiles: () -> Unit
+) {
     val t = LocalNoLine.current
     Column(
         modifier = Modifier
@@ -736,7 +743,7 @@ private fun ModuleCards(onOpenDatabases: () -> Unit, onOpenFtp: () -> Unit, onOp
             .noLineCard(RoundedCornerShape(14.dp))
             .padding(16.dp)
     ) {
-        Text("还有三块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+        Text("还有四块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
         Spacer(Modifier.height(4.dp))
         Text(
             "这一格下面这几块和网站那张同理：动的都是服务器上的真东西，会丢数据的要亲手打一遍关键词。",
@@ -770,6 +777,16 @@ private fun ModuleCards(onOpenDatabases: () -> Unit, onOpenFtp: () -> Unit, onOp
                 "还能批量启停/删除/执行、建分类、把一批归到某个分类。自动备份和日志切割那两块面板的开关实测会凭空建任务，只给读数。",
             cta = "进入计划任务",
             onOpen = onOpenCron
+        )
+        HorizontalDivider(color = t.hairline, modifier = Modifier.padding(vertical = 12.dp))
+        ModuleEntryCard(
+            icon = Icons.Default.Folder,
+            title = "文件管理器",
+            blurb = "像面板那样在目录里走：进目录、跳路径、按名字找、建目录建文件、编辑正文、改名、移动、复制、" +
+                "软链、解压、从手机上传、改权限与属主、删除，旁边还有回收站（放回、恢复到指定位置、彻底删）和文件操作历史。" +
+                "压缩、下载直链、递归改权限这台面板做不到，页底写清了原因。",
+            cta = "进入文件管理器",
+            onOpen = onOpenFiles
         )
     }
     Spacer(Modifier.height(14.dp))

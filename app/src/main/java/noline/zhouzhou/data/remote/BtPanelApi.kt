@@ -17,9 +17,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -84,14 +87,32 @@ internal enum class BtModule(val path: String) {
     Crontab("crontab"),
     Site("site"),
     Database("database"),
-    Ftp("ftp")
+    Ftp("ftp"),
+    Files("files")
 }
+
+/**
+ * 一个要随表单体一起发出去的文件。
+ *
+ * 只有 `files?action=UploadFile` 用到它：那一口是 `multipart/form-data`，
+ * 面板收的文件字段固定叫 `zunfile`（实测字段名写错就是 HTTP 400 空 body，一句解释都不给）。
+ * 内容按 [open] 现取现送，不把整个文件先搬进内存；[sizeBytes] 必须是真的，
+ * multipart 的 `Content-Length` 靠它算，不知道长度就拼不出这条请求。
+ */
+class BtUploadPart(
+    val field: String,
+    val filename: String,
+    val sizeBytes: Long,
+    val mimeType: String = "application/octet-stream",
+    val open: () -> java.io.InputStream
+)
 
 data class BtRequest(
     val url: String,
     val form: Map<String, String>,
     /** 面板的模块口全是 POST，Docker / Java 那批新口是 GET + query。 */
-    val verb: String = "POST"
+    val verb: String = "POST",
+    val uploads: List<BtUploadPart> = emptyList()
 )
 
 data class BtRaw(val status: Int, val contentType: String, val body: String)
@@ -129,10 +150,10 @@ class OkHttpBtTransport(
     private val formType = "application/x-www-form-urlencoded; charset=utf-8".toMediaType()
 
     override suspend fun execute(request: BtRequest): BtRaw = withContext(Dispatchers.IO) {
-        val encodedForm = {
-            request.form.entries.joinToString("&") { (key, value) ->
-                URLEncoder.encode(key, "UTF-8") + "=" + URLEncoder.encode(value, "UTF-8")
-            }.toRequestBody(formType)
+        val body = when {
+            request.verb.equals("GET", ignoreCase = true) -> null
+            request.uploads.isEmpty() -> encodedForm(request.form)
+            else -> multipart(request.form, request.uploads)
         }
         val builder = if (request.verb.equals("GET", ignoreCase = true)) {
             val query = request.form.entries.joinToString("&") { (key, value) ->
@@ -146,7 +167,7 @@ class OkHttpBtTransport(
             Request.Builder()
                 .url(request.url)
                 .header("Accept", "application/json")
-                .post(encodedForm())
+                .post(body!!)
         }
         try {
             client.newCall(builder.build()).execute().use { response ->
@@ -163,6 +184,48 @@ class OkHttpBtTransport(
             throw BtException(BtIssue.Network, "连不上面板，检查地址、端口和安全入口")
         }
     }
+
+    private fun encodedForm(form: Map<String, String>) =
+        form.entries.joinToString("&") { (key, value) ->
+            URLEncoder.encode(key, "UTF-8") + "=" + URLEncoder.encode(value, "UTF-8")
+        }.toRequestBody(formType)
+
+    /**
+     * 上传走这条：普通字段照表单体摆成 multipart 的字符串段，文件段单独按 [BtUploadPart.open] 流式送。
+     *
+     * 签名的两个字段也得进 multipart，不然面板当没带 key 的请求拒掉。
+     */
+    private fun multipart(form: Map<String, String>, uploads: List<BtUploadPart>) =
+        MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+            form.forEach { (key, value) ->
+                addFormDataPart(key, value)
+            }
+            uploads.forEach { part ->
+                addPart(
+                    Headers.Builder()
+                        .add("Content-Disposition", """form-data; name="${part.field}"; filename="${part.filename}"""")
+                        .add("Content-Type", part.mimeType)
+                        .build(),
+                    object : RequestBody() {
+                        override fun contentType() = part.mimeType.toMediaType()
+
+                        // 长度必须报得出来，否则 okhttp 算不出整条请求的 Content-Length。
+                        override fun contentLength() = part.sizeBytes
+
+                        override fun writeTo(sink: okio.BufferedSink) {
+                            part.open().use { input ->
+                                val buffer = ByteArray(64 * 1024)
+                                while (true) {
+                                    val read = input.read(buffer)
+                                    if (read < 0) break
+                                    sink.write(buffer, 0, read)
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+        }.build()
 }
 
 /**
@@ -280,6 +343,17 @@ class BtPanelApi(
     ): BtReply = send(moduleUrl(requireSite(), module), action, params, "POST")
 
     /**
+     * 带文件的调用，只有 `UploadFile` 用。签名照旧塞进 multipart 的字符串段里，
+     * 文件按 [part] 现读现送，不把整个文件搬进内存。
+     */
+    internal suspend fun callUpload(
+        module: BtModule,
+        action: String,
+        params: Map<String, String>,
+        part: BtUploadPart
+    ): BtReply = send(moduleUrl(requireSite(), module), action, params, "POST", listOf(part))
+
+    /**
      * 通用调用台走这里：目录里那条接口写的是什么路径、什么动词、动作放 body 还是放 URL，
      * 就照它发。签名字段照样要带，所以不能直接拿 okhttp 自己拼。
      */
@@ -294,7 +368,8 @@ class BtPanelApi(
         url: String,
         action: String?,
         params: Map<String, String>,
-        verb: String
+        verb: String,
+        uploads: List<BtUploadPart> = emptyList()
     ): BtReply {
         val site = requireSite()
         val key = config.key.trim()
@@ -308,7 +383,7 @@ class BtPanelApi(
         )
         if (action != null) form["action"] = action
         form.putAll(params.filterKeys { it !in ProtectedFormKeys })
-        return interpret(transport.execute(BtRequest(url, form, verb)), action ?: url)
+        return interpret(transport.execute(BtRequest(url, form, verb, uploads)), action ?: url)
     }
 
     private fun requireSite(): String = config.site.trim().trimEnd('/')
