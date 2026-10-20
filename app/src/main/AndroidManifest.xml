@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- 更新包的下载挂在前台服务上，Android 14 起这类服务要单独声明用途。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- SSH 会话也要挂前台服务，否则进程一被冻结那条 TCP 就拆了；它不属于任何常见用途。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:name=".TypechoApplication"
@@ -114,6 +116,18 @@
             android:name=".data.sync.UpdateDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- 终端连着服务器时把进程钉在前台优先级上：不挂这条，退到后台约二十秒
+             socket 就被拆（实测 Software caused connection abort）。
+             既不是下载也不是同步，只能报 specialUse，用途写在下边这个 property 里。 -->
+        <service
+            android:name=".data.sync.SshSessionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="保持一条用户主动开启的 SSH 会话，切到后台时不被系统冻结进程掐断" />
+        </service>
 
         <!-- 更新包落在 cacheDir/updates，安装器是另一个进程，只能经 FileProvider 给 URI -->
         <provider

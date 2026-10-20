@@ -35,8 +35,14 @@ class AppDeepLinkTest {
     }
 
     @Test
+    fun `SSH 那条常驻通知落回终端页`() {
+        // 会话靠这条通知撑住后台，点它就该回到终端本身，而不是首页或设置页。
+        assertEquals(Screen.Ssh.route, parseAppLink("nline://ssh")?.route)
+        assertNull(parseAppLink("nline://ssh/close-all"))
+    }
+
+    @Test
     fun `空串和认不出的链接都不该跳任何页`() {
-        assertNull(parseAppLink(null))
         assertNull(parseAppLink(""))
         assertNull(parseAppLink("   "))
         assertNull(parseAppLink("https://www.zhouzhou.work"))

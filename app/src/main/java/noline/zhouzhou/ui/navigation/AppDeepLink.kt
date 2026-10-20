@@ -1,6 +1,7 @@
 package noline.zhouzhou.ui.navigation
 
 import noline.zhouzhou.data.model.BillKind
+import noline.zhouzhou.data.sync.SshSessionService
 import noline.zhouzhou.data.sync.StatusNotifier
 import noline.zhouzhou.data.sync.UpdateNotifier
 
@@ -41,6 +42,8 @@ fun parseAppLink(link: String?): AppLink? {
         raw == StatusNotifier.DEEP_LINK_BILLS -> AppLink(Screen.Bills.route)
         // 更新下完那条通知：回到设置页，由页面把包交给安装器。
         raw == UpdateNotifier.DEEP_LINK_UPDATE -> AppLink(Screen.Settings.route)
+        // 终端那条常驻通知：直接回到 SSH 页，会话还在不在由页面自己说。
+        raw == SshSessionService.DEEP_LINK_SSH -> AppLink(Screen.Ssh.route)
         raw == AppLinks.HEALTH -> AppLink(Screen.Health.route)
         raw == AppLinks.HEALTH_ADD -> AppLink(Screen.Health.route, openAdd = true)
         raw == AppLinks.BILLS_ADD || raw.startsWith("${AppLinks.BILLS_ADD}?") ->
