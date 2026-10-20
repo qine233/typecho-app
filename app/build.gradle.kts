@@ -56,6 +56,19 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // BouncyCastle 那三个 jar 各带一份 OSGi 清单，签名文件也不能进 APK（重打包后签名就无效了）。
+    packaging {
+        resources {
+            excludes += listOf(
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+                "META-INF/*.SF",
+                "META-INF/*.DSA",
+                "META-INF/*.RSA",
+                "META-INF/DEPENDENCIES"
+            )
+        }
+    }
 }
 
 dependencies {
@@ -83,9 +96,13 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.haze)
+    implementation(libs.sshj)
+    implementation(libs.bouncycastle)
 
     testImplementation(libs.junit)
     testImplementation(libs.kxml2)
+    testImplementation(libs.apache.sshd.core)
+    testImplementation(libs.slf4j.simple)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
