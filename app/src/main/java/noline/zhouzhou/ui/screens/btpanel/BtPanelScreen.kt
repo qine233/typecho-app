@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.Storage
@@ -63,7 +64,8 @@ fun BtPanelScreen(
     onOpenConsole: () -> Unit,
     onOpenSites: () -> Unit,
     onOpenDatabases: () -> Unit,
-    onOpenFtp: () -> Unit
+    onOpenFtp: () -> Unit,
+    onOpenCron: () -> Unit
 ) {
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
     val state by viewModel.uiState.collectAsState()
@@ -210,7 +212,7 @@ fun BtPanelScreen(
             if (state.dashboard != null) {
                 Spacer(Modifier.height(14.dp))
                 SitesCard(onOpenSites)
-                ModuleCards(onOpenDatabases, onOpenFtp)
+                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron)
                 Spacer(Modifier.height(14.dp))
                 TableCard(state, viewModel) { pending = it }
                 Spacer(Modifier.height(14.dp))
@@ -227,7 +229,7 @@ fun BtPanelScreen(
                 }
             } else if (state.configured) {
                 Spacer(Modifier.height(14.dp))
-                ModuleCards(onOpenDatabases, onOpenFtp)
+                ModuleCards(onOpenDatabases, onOpenFtp, onOpenCron)
                 Spacer(Modifier.height(12.dp))
                 ConsoleLink(onOpenConsole)
             }
@@ -726,7 +728,7 @@ private fun SitesCard(onOpen: () -> Unit) {
  * 面板的看板没读成功的时候这里也摆：这两页各自会自己去问 `/data`，不靠看板的数据。
  */
 @Composable
-private fun ModuleCards(onOpenDatabases: () -> Unit, onOpenFtp: () -> Unit) {
+private fun ModuleCards(onOpenDatabases: () -> Unit, onOpenFtp: () -> Unit, onOpenCron: () -> Unit) {
     val t = LocalNoLine.current
     Column(
         modifier = Modifier
@@ -734,10 +736,10 @@ private fun ModuleCards(onOpenDatabases: () -> Unit, onOpenFtp: () -> Unit) {
             .noLineCard(RoundedCornerShape(14.dp))
             .padding(16.dp)
     ) {
-        Text("还有两块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
+        Text("还有三块做成了专门的页面", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = t.textStrong)
         Spacer(Modifier.height(4.dp))
         Text(
-            "这一格下面的两块和网站那张同理：动的都是服务器上的真东西，会丢数据的要亲手打一遍关键词。",
+            "这一格下面这几块和网站那张同理：动的都是服务器上的真东西，会丢数据的要亲手打一遍关键词。",
             fontSize = 11.5.sp,
             color = t.textLight,
             lineHeight = 17.sp
@@ -759,6 +761,15 @@ private fun ModuleCards(onOpenDatabases: () -> Unit, onOpenFtp: () -> Unit) {
                 "备注和根目录面板接口改不了，这一页就只能读。",
             cta = "进入 FTP 管理",
             onOpen = onOpenFtp
+        )
+        HorizontalDivider(color = t.hairline, modifier = Modifier.padding(vertical = 12.dp))
+        ModuleEntryCard(
+            icon = Icons.Default.Schedule,
+            title = "计划任务",
+            blurb = "任务列表里建任务、整行编辑、启用/暂停、立即执行、看执行日志、删任务；" +
+                "还能批量启停/删除/执行、建分类、把一批归到某个分类。自动备份和日志切割那两块面板的开关实测会凭空建任务，只给读数。",
+            cta = "进入计划任务",
+            onOpen = onOpenCron
         )
     }
     Spacer(Modifier.height(14.dp))

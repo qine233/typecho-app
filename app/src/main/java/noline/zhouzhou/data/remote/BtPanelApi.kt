@@ -253,9 +253,19 @@ class BtPanelApi(
         return reply.msg.ifBlank { "面板已重载" }
     }
 
-    /** 让某个计划任务立刻跑一次。任务本身干什么完全由面板那边决定。 */
+    /**
+     * 让某个计划任务立刻跑一次。
+     *
+     * 文档里那条 `set_execute_script` 用不得：实测不管任务启停，它都只回一个裸的 `false`，
+     * 日志文件一条都不多（v1.18.0 拿一次性任务 `aa-test-cron` 验的）。
+     * 面板批量口 `set_cron_status_all type=exec` 才是真能跑起来的那条，回的是
+     * `[{"任务名":"执行成功","status":true}]`。
+     */
     suspend fun runCrontab(id: String): String {
-        val reply = call(BtModule.Crontab, "set_execute_script", mapOf("id" to id))
+        val reply = call(
+            BtModule.Crontab, "set_cron_status_all",
+            mapOf("type" to "exec", "id_list" to "[$id]")
+        )
         return reply.msg.ifBlank { "任务已交给面板执行" }
     }
 

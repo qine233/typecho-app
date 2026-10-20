@@ -36,6 +36,7 @@ import noline.zhouzhou.ui.screens.bills.BillsScreen
 import noline.zhouzhou.ui.screens.btpanel.BtConsoleScreen
 import noline.zhouzhou.ui.screens.btpanel.BtDatabaseDetailScreen
 import noline.zhouzhou.ui.screens.btpanel.BtDatabasesScreen
+import noline.zhouzhou.ui.screens.btpanel.BtCronScreen
 import noline.zhouzhou.ui.screens.btpanel.BtFtpScreen
 import noline.zhouzhou.ui.screens.btpanel.BtMysqlToolsScreen
 import noline.zhouzhou.ui.screens.btpanel.BtPanelScreen
@@ -117,6 +118,9 @@ sealed class Screen(val route: String) {
 
     /** FTP 管理：账户列表 + 建/停/改密码/限额/日志/删。 */
     data object BtFtp : Screen("settings/btpanel/ftp")
+
+    /** 计划任务：任务列表 + 建/改/启停/执行/日志/删 + 批量 + 分类。 */
+    data object BtCron : Screen("settings/btpanel/cron")
 
     /**
      * 单个库的详情页。库名和账号名都要 encode：
@@ -344,7 +348,8 @@ fun TypechoNavHost(
                         onOpenConsole = { navController.navigate(Screen.BtConsole.route) },
                         onOpenSites = { navController.navigate(Screen.BtSites.route) },
                         onOpenDatabases = { navController.navigate(Screen.BtDatabases.route) },
-                        onOpenFtp = { navController.navigate(Screen.BtFtp.route) }
+                        onOpenFtp = { navController.navigate(Screen.BtFtp.route) },
+                        onOpenCron = { navController.navigate(Screen.BtCron.route) }
                     )
                 }
 
@@ -435,6 +440,13 @@ fun TypechoNavHost(
 
                 composable(Screen.BtFtp.route) {
                     BtFtpScreen(
+                        appContainer = appContainer,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.BtCron.route) {
+                    BtCronScreen(
                         appContainer = appContainer,
                         onBack = { navController.popBackStack() }
                     )

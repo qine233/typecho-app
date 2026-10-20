@@ -15,6 +15,7 @@ import noline.zhouzhou.data.model.btNetwork
 import noline.zhouzhou.data.model.btResultView
 import noline.zhouzhou.data.model.btSystemSnapshot
 import noline.zhouzhou.data.remote.BtException
+import noline.zhouzhou.data.remote.BtCronApi
 import noline.zhouzhou.data.remote.BtDatabaseApi
 import noline.zhouzhou.data.remote.BtFtpApi
 import noline.zhouzhou.data.remote.BtIssue
@@ -80,6 +81,8 @@ class BtPanelRepository(
     suspend fun databaseClient(): BtDatabaseApi = BtDatabaseApi(api())
 
     suspend fun ftpClient(): BtFtpApi = BtFtpApi(api())
+
+    suspend fun cronClient(): BtCronApi = BtCronApi(api())
 
     /** 改地址、改密钥、改「信任自签」之后必须换掉客户端，否则旧设置会一直用到进程重启。 */
     private suspend fun api(): BtPanelApi {
