@@ -35,7 +35,7 @@ class BtSiteFormTest {
 
     @Test
     fun `an ip is a legal site target`() {
-        assertNull(BtNewSiteForm.domainError("182.254.182.165"))
+        assertNull(BtNewSiteForm.domainError("192.0.2.1"))
     }
 
     @Test
