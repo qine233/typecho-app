@@ -30,7 +30,6 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
@@ -179,12 +178,11 @@ private val WarnColor = ColorProvider(LightNoLine.healthOver, DarkNoLine.healthO
  * [R.drawable.widget_card_bg] 那张半透明 layer-list。Glance 1.1.1 既没有 blur 也没有 alpha
  * 修饰符（拆 AAR 确认过），所以「磨砂」只能是把糊好的图当背景递进去。
  *
- * 但图片背景会被 Glance 拆成根 View 的一个子 ImageView（拆 AAR 时看到
- * `transformBackgroundImageAndActionRipple`），于是**根 View 自己是没有背景的**——
- * Android 12 起的桌面看到没背景的根，就替卡片补一张它自己的底。Pixel 补的是圆角，
- * 我们那圈透明缺口刚好落在它的圆角里，看着没事；有些桌面补的是直角板子，
- * 缺口就被它填实了，圆角白画。所以这里显式给根 View 一层全透明背景：
- * 它算「有背景」，桌面就不会再往后面垫东西，缺口露出的才是壁纸。
+ * 但图片背景怎么递进去，决定圆角会不会被填平：位图当不了资源 id，Glance 会把
+ * `background(ImageProvider(bitmap))` 挪进一个子 ImageView，于是这个 View 自己没有背景；
+ * 桌面一看「这张卡没底」就自己垫一块（澎湃垫的是直角白板），我们那圈透明缺口被它填实，
+ * 圆角白画。所以根统一走 [WidgetCard]：它给根节点挂上桌面用来认背景的
+ * `android.R.id.background`，并把糊好的壁纸位图铺成一张满幅子图。
  */
 /**
  * 卡片上每一条留白。3×3 那一格桌面只给 311dp，扣掉内容正好剩 9dp，
@@ -210,15 +208,10 @@ private fun BillsWidgetContent(spec: WidgetSpec, data: BillsWidgetData, glass: B
     val context = LocalContext.current
     val wide = spec.wide
 
-    Column(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(ColorProvider(Color.Transparent, Color.Transparent))
-            .background(if (glass != null) ImageProvider(glass) else ImageProvider(R.drawable.widget_card_bg))
-            .padding(
-                horizontal = if (wide) CardPaddingHorizontalWide else CardPaddingHorizontalNarrow,
-                vertical = CardPaddingVertical
-            )
+    WidgetCard(
+        glass = glass,
+        contentPaddingHorizontal = if (wide) CardPaddingHorizontalWide else CardPaddingHorizontalNarrow,
+        contentPaddingVertical = CardPaddingVertical
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

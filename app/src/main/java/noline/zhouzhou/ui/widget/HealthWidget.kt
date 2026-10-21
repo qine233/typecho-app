@@ -29,7 +29,6 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
@@ -157,25 +156,18 @@ private fun trendColor(trend: WidgetTrend) = when (trend) {
 /**
  * 排版吃的是 [BillsWidgetContent] 那一套：外层 Column 只有六段（Glance 每个容器最多
  * 十个子元素，超了静默截断），右对齐靠「fillMaxWidth + TextAlign.End」，
- * 明细行的首列是死宽。根背景和买菜卡同一套：能拿到壁纸就现糊一张毛玻璃
- * （[widgetGlassBackground]），拿不到退回 shape——Glance 的 cornerRadius 要 API 31，
- * minSdk 26 只能这么画圆角。根 View 上还压一层全透明背景，专门用来挡住桌面
- * 自作主张垫在卡片后面的那块底板（买菜卡那边有详细解释）。
+ * 明细行的首列是死宽。根和买菜卡同一个 [WidgetCard]：能拿到壁纸就现糊一张毛玻璃铺满，
+ * 拿不到退回 shape——Glance 的 cornerRadius 要 API 31，minSdk 26 只能这么画圆角。
  */
 @Composable
 private fun HealthWidgetContent(spec: WidgetSpec, data: HealthWidgetData, glass: Bitmap?) {
     val context = LocalContext.current
     val wide = spec.wide
 
-    Column(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(ColorProvider(Color.Transparent, Color.Transparent))
-            .background(if (glass != null) ImageProvider(glass) else ImageProvider(R.drawable.widget_card_bg))
-            .padding(
-                horizontal = if (wide) 18.dp else 15.dp,
-                vertical = if (wide) 13.dp else 12.dp
-            )
+    WidgetCard(
+        glass = glass,
+        contentPaddingHorizontal = if (wide) 18.dp else 15.dp,
+        contentPaddingVertical = if (wide) 13.dp else 12.dp
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

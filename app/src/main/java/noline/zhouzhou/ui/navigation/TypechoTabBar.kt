@@ -7,6 +7,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +55,10 @@ data class TabSpec(
  *
  * 选中那一格仍然是一颗会跑过去的胶囊，但它只是一块纯色底：左右两条边各追各的目标位置，
  * 前沿快、后沿慢，路上被拉成一条，到站再收回 —— 形变、高光、压扁都撤了，动效只留位移。
+ *
+ * 按下去的那块高亮和选中那颗是**同一个形状**：同样是槽位外扩一圈的圆。默认 `clickable` 的水波纹
+ * 是按节点矩形铺的（一格有 50 多 dp 宽），方形波纹从圆形指示底下冒出来，看着就是两套东西，
+ * 所以这里把 indication 关掉，改成在 Row 底下画一颗按下的圆。
  */
 @Composable
 fun TypechoTabBar(
@@ -65,12 +71,18 @@ fun TypechoTabBar(
     val density = LocalDensity.current
     val slots: SnapshotStateMap<String, Rect> = remember { mutableStateMapOf() }
     val selected = tabs.firstOrNull { it.route == currentRoute }
+    // 按下的那一格：高亮要和选中那颗同形，所以坐标也走同一套槽位 + 外扩
+    var pressedRoute by remember { mutableStateOf<String?>(null) }
     // 槽位量到的是图标和字的外接框，色块要比它大一圈才不像贴上去的纸片
     val slot = selected?.let { slots[it.route] }
     val padX = with(density) { PillPadX.toPx() }
     val padY = with(density) { PillPadY.toPx() }
     val target = if (slot == null) Rect.Zero
     else Rect(slot.left - padX, slot.top - padY, slot.right + padX, slot.bottom + padY)
+    val pressedSlot = pressedRoute?.let { slots[it] }
+    val pressed = pressedSlot?.let {
+        Rect(it.left - padX, it.top - padY, it.right + padX, it.bottom + padY)
+    }
 
     val leading by animateFloatAsState(target.left, tween(220, easing = FastOutSlowInEasing), label = "pillLeading")
     val trailing by animateFloatAsState(target.right, tween(220, easing = FastOutSlowInEasing), label = "pillTrailing")
@@ -107,6 +119,19 @@ fun TypechoTabBar(
                     .flatPill(CircleShape)
             )
         }
+        // 按下的高亮走同一套槽位 + 外扩，所以它和选中那颗是同一个圆，只是淡一档
+        if (pressed != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset((pressed.left + rowPadPx).toInt(), pressed.top.toInt()) }
+                    .size(
+                        width = with(density) { pressed.width.toDp() },
+                        height = with(density) { pressed.height.toDp() }
+                    )
+                    .background(LocalNoLine.current.accent.copy(alpha = PressAlpha), CircleShape)
+            )
+        }
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = TabRowSideGap),
             verticalAlignment = Alignment.CenterVertically
@@ -118,6 +143,10 @@ fun TypechoTabBar(
                     tab = tab,
                     selected = currentRoute == tab.route,
                     onSlot = { slots[tab.route] = it },
+                    onPressChanged = { down ->
+                        if (down) pressedRoute = tab.route
+                        else if (pressedRoute == tab.route) pressedRoute = null
+                    },
                     onClick = { onTabSelected(tab) },
                     modifier = Modifier.weight(1f)
                 )
@@ -131,6 +160,10 @@ fun TypechoTabBar(
                     tab = tab,
                     selected = currentRoute == tab.route,
                     onSlot = { slots[tab.route] = it },
+                    onPressChanged = { down ->
+                        if (down) pressedRoute = tab.route
+                        else if (pressedRoute == tab.route) pressedRoute = null
+                    },
                     onClick = { onTabSelected(tab) },
                     modifier = Modifier.weight(1f)
                 )
@@ -152,6 +185,9 @@ private val TabRowSideGap = 6.dp
 private val PillPadX = 3.dp
 private val PillPadY = 2.dp
 
+/** 按下那一圈比选中的底再淡一点：选中格上按下去只会稍深，不会跳成另一颗颜色。 */
+private const val PressAlpha = 0.10f
+
 /**
  * 各 Tab 页列表底部该留多少：实底栏的高度 + 系统导航栏。
  * 栏是盖在内容上的，不再由外层 Scaffold 占位，所以这一份要页面自己算。
@@ -165,10 +201,16 @@ private fun TabButton(
     tab: TabSpec,
     selected: Boolean,
     onSlot: (Rect) -> Unit,
+    onPressChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = LocalNoLine.current
+    val interactionSource = remember { MutableInteractionSource() }
+    LaunchedEffect(interactionSource) {
+        // Release 和 Cancel 都不是「按着」，一起报 false
+        interactionSource.interactions.collect { onPressChanged(it is PressInteraction.Press) }
+    }
     val tint by animateColorAsState(
         targetValue = if (selected) t.accent else t.textSecondary,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy),
@@ -184,7 +226,13 @@ private fun TabButton(
     Column(
         modifier = modifier
             .padding(horizontal = 3.dp)
-            .clickable(onClick = onClick)
+            // 默认水波纹按节点矩形铺（一格 50 多 dp 宽），会从圆形指示底下冒出方的；
+            // 按下的高亮改由栏自己画一颗同形的圆，这里把 indication 关掉。
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
             .padding(vertical = 5.dp)
             .onGloballyPositioned { onSlot(it.boundsInParent()) },
         horizontalAlignment = Alignment.CenterHorizontally,

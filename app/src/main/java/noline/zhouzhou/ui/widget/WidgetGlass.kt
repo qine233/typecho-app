@@ -15,10 +15,23 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import androidx.collection.LruCache
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.Dp
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.glance.GlanceId
+import androidx.glance.GlanceModifier
+import androidx.glance.Image
+import androidx.glance.ImageProvider
 import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.appWidgetBackground
+import androidx.glance.background
+import androidx.glance.layout.Box
+import androidx.glance.layout.Column
+import androidx.glance.layout.ColumnScope
+import androidx.glance.layout.ContentScale
+import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.padding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import noline.zhouzhou.R
@@ -218,6 +231,51 @@ private fun paintCard(source: Bitmap, context: Context, pxPerDp: Float): Bitmap 
 
 private fun roundRectPath(bounds: RectF, radius: Float): Path = Path().apply {
     addRoundRect(bounds, radius, radius, Path.Direction.CW)
+}
+
+/**
+ * 桌面卡片的根。两种材质叠在一起：底下那张 [R.drawable.widget_card_bg] 是卡片自己的底，
+ * 上面铺满的是按这张壁纸现糊的毛玻璃（[widgetGlassBackground]），拿不到壁纸就只留底那张。
+ *
+ * 为什么非得是「底 + 子图」两层，而不是直接把位图当根背景：位图当不了资源 id，Glance 会把
+ * `background(ImageProvider(bitmap))` 挪进一个子 ImageView（拆 AAR 看到
+ * `transformBackgroundImageAndActionRipple` 只处理 `AndroidResourceImageProvider`，走
+ * `RemoteViewsCompat.setViewBackgroundResource` 留在 View 自己身上）。挪走之后根 View 就没有背景了，
+ * 而桌面判断「这张卡自带底了吗」看的是根上那个 `android.R.id.background` 节点——
+ * [appWidgetBackground] 就是给节点挂上这个 id（拆 AAR 看到它填的 viewId 是 0x01020000）。
+ * 认不出来桌面就自己垫一块：Pixel 垫圆角，我们的透明缺口刚好落在它的圆角里看着没事；
+ * 澎湃垫的是直角白板，缺口被它填实，22dp 的圆角就白画了。官方文档那句
+ * 「背景不要采用透明的、空的视图」说的也是这件事，所以这里给的是有实体的 layer-list，
+ * 不是一层全透明色。
+ */
+@Composable
+internal fun WidgetCard(
+    glass: Bitmap?,
+    contentPaddingHorizontal: Dp,
+    contentPaddingVertical: Dp,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .appWidgetBackground()
+            .background(ImageProvider(R.drawable.widget_card_bg))
+    ) {
+        if (glass != null) {
+            Image(
+                provider = ImageProvider(glass),
+                contentDescription = null,
+                modifier = GlanceModifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds
+            )
+        }
+        Column(
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .padding(horizontal = contentPaddingHorizontal, vertical = contentPaddingVertical),
+            content = content
+        )
+    }
 }
 
 /**
