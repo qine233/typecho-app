@@ -20,13 +20,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.R
 import noline.zhouzhou.ui.components.CategoryFilterRow
-import noline.zhouzhou.ui.components.GlassTopBar
+import noline.zhouzhou.ui.components.PageTopBar
 import noline.zhouzhou.ui.components.LoadMoreFooter
 import noline.zhouzhou.ui.components.SearchPill
 import noline.zhouzhou.ui.components.WaterfallPostCard
@@ -48,7 +46,7 @@ fun HomeScreen(
     }
     val uiState by viewModel.uiState.collectAsState()
     val gridState = rememberLazyStaggeredGridState()
-    // 底栏现在是盖在内容上的玻璃胶囊，最后一屏要能滚到它上面去
+    // 底栏盖在内容上，最后一屏要能滚到它上面去
     val tabBarInset = rememberTabBarInset()
 
     // 触底自动翻页
@@ -61,9 +59,8 @@ fun HomeScreen(
         }
     }
 
-    // 头部现在是盖在内容上的玻璃胶囊，所以列表要铺满整屏、再从胶囊底下穿过去；
+    // 头部盖在内容上，所以列表要铺满整屏、再从它底下穿过去；
     // 顶部让出多少由头部实测出来，标题行和分类条有一行没一行是常事。
-    val haze = remember { HazeState() }
     var barH by remember { mutableStateOf(0.dp) }
 
     Box(
@@ -74,7 +71,6 @@ fun HomeScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .hazeSource(haze)
         ) {
             when {
                 uiState.isLoading && uiState.posts.isEmpty() -> {
@@ -135,8 +131,7 @@ fun HomeScreen(
             }
         }
 
-        GlassTopBar(
-            haze = haze,
+        PageTopBar(
             onBarHeight = { barH = it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {

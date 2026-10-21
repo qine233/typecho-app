@@ -45,15 +45,6 @@ data class NoLineTokens(
     val onCover: Color,
     val heroVeilTop: Color,
     val heroVeilBottom: Color,
-    val glassBg: Color,
-    /**
-     * 玻璃边缘那道镜面高光的「满亮度」，具体某一道光按倍数压（见 GlassBar 的 glassLight）。
-     * 浅色主题下玻璃是白的，高光不推满就看不出边；深色主题反过来 —— 黑底上一圈接近纯白
-     * 的线读起来就是描边而不是反光，所以这一档要压下去。
-     */
-    val glassHighlight: Color,
-    /** 玻璃内缘下侧的内阴影，和 [glassHighlight] 一上一下一起撑出厚度。 */
-    val glassInnerShadow: Color,
     val scrim: Color,
     val lightboxBg: Color,
     val codeBg: Color,
@@ -94,9 +85,6 @@ val LightNoLine = NoLineTokens(
     onCover = Color(0xFFFFFFFF),
     heroVeilTop = Color(0x47101426),                  // rgba(16,20,38,.28)
     heroVeilBottom = Color(0x99101426),               // rgba(16,20,38,.60)
-    glassBg = Color(0xB8FFFFFF),                     // rgba(255,255,255,.72)
-    glassHighlight = Color(0xE6FFFFFF),              // 边缘镜面的「满亮度」，各处按倍数压
-    glassInnerShadow = Color(0x3D101426),            // rgba(16,20,38,.24) 内缘那条暗带
     scrim = Color(0x730F172A),                       // rgba(15,23,42,.45)
     lightboxBg = Color(0xD1080C12),                  // rgba(8,12,18,.82)
     codeBg = Color(0xFF282C34),
@@ -136,9 +124,6 @@ val DarkNoLine = NoLineTokens(
     onCover = Color(0xFFF2F5F9),
     heroVeilTop = Color(0x57000000),                  // rgba(0,0,0,.34)
     heroVeilBottom = Color(0xC70A0E14),               // rgba(10,14,20,.78)
-    glassBg = Color(0xB817191D),
-    glassHighlight = Color(0x6BFFFFFF),              // 深底上高光要压到四成：再亮就成了描边而不是反光
-    glassInnerShadow = Color(0x73000000),            // rgba(0,0,0,.45)
     scrim = Color(0x9E000000),
     lightboxBg = Color(0xE6000000),
     codeBg = Color(0xFF1A1F27),

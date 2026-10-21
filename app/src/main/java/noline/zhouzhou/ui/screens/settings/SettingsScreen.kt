@@ -36,8 +36,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.BuildConfig
 import noline.zhouzhou.R
@@ -48,7 +46,7 @@ import noline.zhouzhou.data.repository.NolineReport
 import noline.zhouzhou.data.repository.StorageRepository
 import noline.zhouzhou.data.repository.StorageUsage
 import noline.zhouzhou.data.sync.updateNoticeText
-import noline.zhouzhou.ui.components.GlassTopBar
+import noline.zhouzhou.ui.components.PageTopBar
 import noline.zhouzhou.ui.components.NolineGuide
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.NoLineChip
@@ -137,7 +135,6 @@ fun SettingsScreen(
         )
     }
 
-    val haze = remember { HazeState() }
     var barH by remember { mutableStateOf(0.dp) }
 
     Box(
@@ -148,9 +145,8 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .hazeSource(haze)
                 .verticalScroll(rememberScrollState())
-                // 顶栏是浮在上面的玻璃，所以首屏内容自己让位；底部让给玻璃胶囊
+                // 顶栏盖在内容上，所以首屏内容自己让位；底部让给实底栏
                 .padding(start = 16.dp, end = 16.dp, top = barH + 14.dp, bottom = 16.dp + tabBarInset)
         ) {
                 // Site info card
@@ -441,8 +437,7 @@ fun SettingsScreen(
                 Spacer(Modifier.height(32.dp))
             }
 
-        GlassTopBar(
-            haze = haze,
+        PageTopBar(
             onBarHeight = { barH = it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {

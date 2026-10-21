@@ -75,7 +75,7 @@ fun BtPanelScreen(
     val viewModel = typechoViewModel<BtPanelViewModel>(appContainer) { BtPanelViewModel(it) }
     val state by viewModel.uiState.collectAsState()
     val t = LocalNoLine.current
-    // 这一页现在是底部标签之一，玻璃胶囊会盖在它上面，末行得自己让开。
+    // 这一页现在是底部标签之一，实底栏会盖在它上面，末行得自己让开。
     val tabBarInset = rememberTabBarInset()
     var editing by remember { mutableStateOf(!state.configured) }
     var pending by remember { mutableStateOf<PendingAction?>(null) }
@@ -814,7 +814,7 @@ private fun ModuleCards(
             onOpen = onOpenSsh
         )
     }
-    // 底部那条玻璃导航栏是浮在内容上的，不留够一整条的高度，最后一张卡片的「进入 xxx」
+    // 底部那条导航栏是盖在内容上的，不留够一整条的高度，最后一张卡片的「进入 xxx」
     // 就永远被压在栏子底下——滚到底也点不到。
     Spacer(Modifier.navigationBarsPadding().height(92.dp))
 }

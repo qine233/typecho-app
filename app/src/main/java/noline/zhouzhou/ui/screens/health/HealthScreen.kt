@@ -29,8 +29,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.data.model.ChangeInfo
 import noline.zhouzhou.data.model.HealthOverview
@@ -38,7 +36,7 @@ import noline.zhouzhou.data.model.HealthRecord
 import noline.zhouzhou.data.model.goalProgress
 import noline.zhouzhou.data.model.goalProgressLabel
 import noline.zhouzhou.data.remote.NolineIssue
-import noline.zhouzhou.ui.components.GlassTopBar
+import noline.zhouzhou.ui.components.PageTopBar
 import noline.zhouzhou.ui.components.NolineGuide
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.LocalAccent
@@ -80,7 +78,6 @@ fun HealthScreen(
         }
     }
 
-    val haze = remember { HazeState() }
     var barH by remember { mutableStateOf(0.dp) }
 
     Scaffold(
@@ -101,7 +98,6 @@ fun HealthScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .hazeSource(haze)
                     .verticalScroll(rememberScrollState())
                     .padding(top = barH + 10.dp, bottom = 40.dp + tabBarInset)
             ) {
@@ -168,7 +164,7 @@ fun HealthScreen(
                 }
             }
 
-            GlassTopBar(haze = haze, onBarHeight = { barH = it },
+            PageTopBar(onBarHeight = { barH = it },
                 modifier = Modifier.align(Alignment.TopCenter)) {
                 HealthHeader(
                     loading = state.loading,

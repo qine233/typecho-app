@@ -20,12 +20,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.R
-import noline.zhouzhou.ui.components.GlassTopBar
+import noline.zhouzhou.ui.components.PageTopBar
 import noline.zhouzhou.ui.components.NotePostCard
 import noline.zhouzhou.ui.theme.LocalNoLine
 import noline.zhouzhou.ui.typechoViewModel
@@ -42,8 +40,7 @@ fun DiaryScreen(
     val t = LocalNoLine.current
     val tabBarInset = rememberTabBarInset()
 
-    // 头部是盖在内容上的玻璃胶囊，列表铺满整屏、从它底下穿过去（同首页）
-    val haze = remember { HazeState() }
+    // 头部盖在内容上，列表铺满整屏、从它底下穿过去（同首页）
     var barH by remember { mutableStateOf(0.dp) }
 
     Box(
@@ -54,7 +51,6 @@ fun DiaryScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .hazeSource(haze)
                 .padding(top = barH)
         ) {
             when {
@@ -88,8 +84,7 @@ fun DiaryScreen(
             }
         }
 
-        GlassTopBar(
-            haze = haze,
+        PageTopBar(
             onBarHeight = { barH = it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {

@@ -505,7 +505,7 @@ private fun DetailTopBar(
         label = "barInk"
     )
     val barBg by animateColorAsState(
-        targetValue = if (scrolled) t.glassBg else Color.Transparent,
+        targetValue = if (scrolled) t.cardBg else Color.Transparent,
         label = "barBg"
     )
 

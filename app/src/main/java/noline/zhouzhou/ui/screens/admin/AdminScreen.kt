@@ -23,13 +23,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.launch
 import noline.zhouzhou.AppContainer
 import noline.zhouzhou.R
 import noline.zhouzhou.data.model.Post
-import noline.zhouzhou.ui.components.GlassTopBar
+import noline.zhouzhou.ui.components.PageTopBar
 import noline.zhouzhou.ui.components.LoadMoreFooter
 import noline.zhouzhou.ui.navigation.rememberTabBarInset
 import noline.zhouzhou.ui.theme.LocalNoLine
@@ -86,7 +84,6 @@ fun AdminScreen(
         )
     }
 
-    val haze = remember { HazeState() }
     var barH by remember { mutableStateOf(0.dp) }
 
     Scaffold(
@@ -105,7 +102,7 @@ fun AdminScreen(
     ) { _ ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().hazeSource(haze),
+                modifier = Modifier.fillMaxSize(),
                 state = listState,
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = barH + 10.dp, bottom = 40.dp + tabBarInset),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -234,8 +231,7 @@ fun AdminScreen(
                 }
             }
 
-            GlassTopBar(
-                haze = haze,
+            PageTopBar(
                 onBarHeight = { barH = it },
                 modifier = Modifier.align(Alignment.TopCenter)
             ) {
