@@ -71,9 +71,9 @@ private const val BlurPasses = 3
 private val glassCache = LruCache<String, Bitmap>(8)
 
 /**
- * 取一张和这张卡片般配的毛玻璃。取不到就回 null，调用方退回 [R.drawable.widget_card_bg]
- * 那张纯半透明 layer-list。动态壁纸（`wallpaperInfo` 非空）也走退回：那时 `drawable`
- * 给的是那张应用的预览图而不是当前画面，糊出来是一张贴图，不如不糊。
+ * 取一张和这张卡片般配的毛玻璃。取不到才回 null，调用方退回 [R.drawable.widget_card_bg]
+ * 那张纯半透明 layer-list——注意那条退路上的圆角外面是透明的，桌面往后垫什么都挡不住，
+ * 所以能出图就一定得出图。
  */
 internal suspend fun widgetGlassBackground(context: Context, id: GlanceId): Bitmap? =
     withContext(Dispatchers.Default) {
@@ -88,7 +88,9 @@ private suspend fun buildGlass(context: Context, id: GlanceId): Bitmap? {
     if (cardWidthDp <= 0f || cardHeightDp <= 0f) return null
 
     val manager = WallpaperManager.getInstance(context)
-    if (manager.wallpaperInfo != null) return null
+    // 动态壁纸的 `drawable` 给的是那张应用的预览图而不是当前画面，糊出来是一张贴图；
+    // 它的颜色倒是不要权限就能拿到，所以只走取色那条。
+    val live = manager.wallpaperInfo != null
     val wallpaperId = runCatching { manager.getWallpaperId(WallpaperManager.FLAG_SYSTEM) }.getOrDefault(0)
 
     val aspect = cardWidthDp / cardHeightDp
@@ -97,7 +99,7 @@ private suspend fun buildGlass(context: Context, id: GlanceId): Bitmap? {
     val renderWidth = sideOf(RenderSide, aspect, horizontal = true)
     val renderHeight = sideOf(RenderSide, aspect, horizontal = false)
 
-    val fromPixels = runCatching { manager.drawable }.getOrNull()
+    val fromPixels = if (live) null else runCatching { manager.drawable }.getOrNull()
     val key = "${if (fromPixels == null) "c" else "p"}$wallpaperId-${renderWidth}x$renderHeight"
     glassCache.get(key)?.let { return it }
 
@@ -183,11 +185,32 @@ private fun blurSampled(sampled: Bitmap, radius: Int): Bitmap {
 }
 
 /**
- * 糊好的颜色 + 原来那四层合成一张卡片。
+ * 出图一律**铺满不透明**：先整张铺一层没调过色的壁纸（圆角外面留的就是它），
+ * 再把抠好圆角的卡片本体盖上去。
+ *
+ * 为什么不能像以前那样把圆角外面抠成透明：桌面垫在卡片底下的那块板子是从**外面**盖不上来的，
+ * 我们这里透明一分，它就露一分。澎湃垫的是直角白板，于是「圆角」变成了「白板的一圈直角边」。
+ * 只要缺口是不透明的壁纸，垫谁都垫不出来——这一条不看桌面的脸色。
+ * 代价是那一圈约 6dp 宽的角是壁纸的**快照**（居中裁的那块），不是卡片底下真正的壁纸；
+ * 反正糊过、又只剩一条边，肉眼分不出。
+ */
+private fun paintCard(source: Bitmap, context: Context, pxPerDp: Float): Bitmap {
+    val glass = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(glass)
+    canvas.drawBitmap(source, null, RectF(0f, 0f, glass.width.toFloat(), glass.height.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
+    val card = paintCardLayer(source, context, pxPerDp)
+    canvas.drawBitmap(card, 0f, 0f, null)
+    card.recycle()
+    return glass
+}
+
+/**
+ * 卡片本体那一层：糊好的颜色 + 原来那四层，最后用 DST_IN 抠出圆角（所以这一层圆角外是透明的，
+ * 由 [paintCard] 铺到壁纸底上）。
  * [pxPerDp] 是「一位 dp 在这张出图上占几个像素」，圆角和描边都得按它换算，
  * 否则出图被 ImageView 放大之后，22dp 的圆角会大得离谱。
  */
-private fun paintCard(source: Bitmap, context: Context, pxPerDp: Float): Bitmap {
+private fun paintCardLayer(source: Bitmap, context: Context, pxPerDp: Float): Bitmap {
     val glass = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(glass)
     val bounds = RectF(0f, 0f, glass.width.toFloat(), glass.height.toFloat())
@@ -240,13 +263,17 @@ private fun roundRectPath(bounds: RectF, radius: Float): Path = Path().apply {
  * 为什么非得是「底 + 子图」两层，而不是直接把位图当根背景：位图当不了资源 id，Glance 会把
  * `background(ImageProvider(bitmap))` 挪进一个子 ImageView（拆 AAR 看到
  * `transformBackgroundImageAndActionRipple` 只处理 `AndroidResourceImageProvider`，走
- * `RemoteViewsCompat.setViewBackgroundResource` 留在 View 自己身上）。挪走之后根 View 就没有背景了，
- * 而桌面判断「这张卡自带底了吗」看的是根上那个 `android.R.id.background` 节点——
- * [appWidgetBackground] 就是给节点挂上这个 id（拆 AAR 看到它填的 viewId 是 0x01020000）。
- * 认不出来桌面就自己垫一块：Pixel 垫圆角，我们的透明缺口刚好落在它的圆角里看着没事；
- * 澎湃垫的是直角白板，缺口被它填实，22dp 的圆角就白画了。官方文档那句
- * 「背景不要采用透明的、空的视图」说的也是这件事，所以这里给的是有实体的 layer-list，
- * 不是一层全透明色。
+ * `RemoteViewsCompat.setViewBackgroundResource` 留在 View 自己身上）。所以位图只能当子图。
+ *
+ * [appWidgetBackground] 还是要挂着：它把这一层标记成桌面认背景用的那个 `android.R.id.background`
+ * （拆 AAR 看到 `LayoutSelectionKt.insertViewInternal` 里填的 viewId 是 0x01020000）。
+ * 但**别指望它单独能挡住白板**——Glance 的组合根不是宿主看到的那个根：
+ * `RemoteViewsTranslatorKt.translateComposition` 先拿 `EmittableSizeBox` 的 modifier 调
+ * `createRootView`，那个方法只从链上摘 Width/Height 两条、其余不看，然后把我们的 Box 塞进
+ * `root_match_match.xml` 里那个 ViewStub。最终树是
+ * `AppWidgetHostView → FrameLayout(rootView，无背景) → 我们的 Box(带 id)`，
+ * 桌面只要看一眼 `getChildAt(0).getBackground()` 就还是判定「这张卡没底」。
+ * 真正兜住的是 [paintCard] 那张**不透明**的图：底下垫什么都露不出来。
  */
 @Composable
 internal fun WidgetCard(
