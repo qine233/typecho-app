@@ -205,7 +205,7 @@ private fun paintCard(source: Bitmap, context: Context, pxPerDp: Float): Bitmap 
 }
 
 /**
- * 卡片本体那一层：糊好的颜色 + 原来那四层，最后用 DST_IN 抠出圆角（所以这一层圆角外是透明的，
+ * 卡片本体那一层：糊好的颜色 + 原来那四层，最后用 CLEAR 抠出圆角（所以这一层圆角外是透明的，
  * 由 [paintCard] 铺到壁纸底上）。
  * [pxPerDp] 是「一位 dp 在这张出图上占几个像素」，圆角和描边都得按它换算，
  * 否则出图被 ImageView 放大之后，22dp 的圆角会大得离谱。
@@ -233,13 +233,21 @@ private fun paintCardLayer(source: Bitmap, context: Context, pxPerDp: Float): Bi
     canvas.drawRect(bounds, paint)
     paint.shader = null
 
-    // 圆角靠 DST_IN 抠：直接 clipPath 不带抗锯齿，边缘会看着像被剪刀剪过。
     val corner = 22f * pxPerDp
-    val mask = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-        color = 0xFF000000.toInt()
+    // 圆角靠 CLEAR 抠掉圆角**外面**那一圈。
+    //
+    // 不能用更直觉的 DST_IN：实测在位图 canvas 上它是一个彻底的空操作——`PorterDuffXfermode(DST_IN)`、
+    // `BlendMode.DST_IN`、以及整段包进 `saveLayer` 再画，三种写法画完之后整张图一个透明像素都没有
+    // （同一张图上 `Mode.CLEAR` 却能真的写穿）。方向反过来，把「非圆角区域」CLEAR 掉才成立。
+    // 直接 `clipPath` 那条也不行：`clipPath` 不带抗锯齿，而且它挡不住 `drawColor`。
+    val outside = Path().apply {
+        addRect(bounds, Path.Direction.CW)
+        op(roundRectPath(bounds, corner), Path.Op.DIFFERENCE)
     }
-    canvas.drawPath(roundRectPath(bounds, corner), mask)
+    val mask = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    }
+    canvas.drawPath(outside, mask)
 
     // 描边往里挤半个线宽，正好落在卡片内侧，不然它压在已经透明的圆角外面，什么都看不见。
     val stroke = 1f * pxPerDp
