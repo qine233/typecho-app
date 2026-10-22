@@ -13,8 +13,8 @@ android {
         applicationId = "noline.zhouzhou"
         minSdk = 26
         targetSdk = 35
-        versionCode = 49
-        versionName = "1.21.3"
+        versionCode = 50
+        versionName = "1.21.4"
     }
 
     // Actions 每次 run 现生成一把调试密钥，签名互不相同会让 App 内更新被判
