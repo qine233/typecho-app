@@ -72,8 +72,7 @@ private val glassCache = LruCache<String, Bitmap>(8)
 
 /**
  * 取一张和这张卡片般配的毛玻璃。取不到才回 null，调用方退回 [R.drawable.widget_card_bg]
- * 那张纯半透明 layer-list——注意那条退路上的圆角外面是透明的，桌面往后垫什么都挡不住，
- * 所以能出图就一定得出图。
+ * 那张纯半透明 layer-list——它和毛玻璃一样是 22dp 圆角、外面透明，所以退回去也不会多出什么边。
  */
 internal suspend fun widgetGlassBackground(context: Context, id: GlanceId): Bitmap? =
     withContext(Dispatchers.Default) {
@@ -185,32 +184,17 @@ private fun blurSampled(sampled: Bitmap, radius: Int): Bitmap {
 }
 
 /**
- * 出图一律**铺满不透明**：先整张铺一层没调过色的壁纸（圆角外面留的就是它），
- * 再把抠好圆角的卡片本体盖上去。
+ * 卡片本体那一层：糊好的壁纸 + 上亮下暗的色调 + 顶部薄光 + 描边，最后用 CLEAR 抠出圆角，
+ * **圆角外面留透明**——用户要的就是「那圈透明直接生效在小组件上」，不是我们垫一张壁纸快照糊弄过去。
  *
- * 为什么不能像以前那样把圆角外面抠成透明：桌面垫在卡片底下的那块板子是从**外面**盖不上来的，
- * 我们这里透明一分，它就露一分。澎湃垫的是直角白板，于是「圆角」变成了「白板的一圈直角边」。
- * 只要缺口是不透明的壁纸，垫谁都垫不出来——这一条不看桌面的脸色。
- * 代价是那一圈约 6dp 宽的角是壁纸的**快照**（居中裁的那块），不是卡片底下真正的壁纸；
- * 反正糊过、又只剩一条边，肉眼分不出。
- */
-private fun paintCard(source: Bitmap, context: Context, pxPerDp: Float): Bitmap {
-    val glass = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(glass)
-    canvas.drawBitmap(source, null, RectF(0f, 0f, glass.width.toFloat(), glass.height.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
-    val card = paintCardLayer(source, context, pxPerDp)
-    canvas.drawBitmap(card, 0f, 0f, null)
-    card.recycle()
-    return glass
-}
-
-/**
- * 卡片本体那一层：糊好的颜色 + 原来那四层，最后用 CLEAR 抠出圆角（所以这一层圆角外是透明的，
- * 由 [paintCard] 铺到壁纸底上）。
+ * 留透明的风险是桌面自己往后垫底（Android 12 起的桌面看见「没自带底」的卡片会补一张），
+ * 所以 [WidgetCard] 那边仍然挂着 `appWidgetBackground()` + 有实体的圆角 layer-list；
+ * 垫不垫、垫圆的还是垫方的，这一次真机上一眼就能看出来。
+ *
  * [pxPerDp] 是「一位 dp 在这张出图上占几个像素」，圆角和描边都得按它换算，
  * 否则出图被 ImageView 放大之后，22dp 的圆角会大得离谱。
  */
-private fun paintCardLayer(source: Bitmap, context: Context, pxPerDp: Float): Bitmap {
+private fun paintCard(source: Bitmap, context: Context, pxPerDp: Float): Bitmap {
     val glass = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(glass)
     val bounds = RectF(0f, 0f, glass.width.toFloat(), glass.height.toFloat())
@@ -281,7 +265,8 @@ private fun roundRectPath(bounds: RectF, radius: Float): Path = Path().apply {
  * `root_match_match.xml` 里那个 ViewStub。最终树是
  * `AppWidgetHostView → FrameLayout(rootView，无背景) → 我们的 Box(带 id)`，
  * 桌面只要看一眼 `getChildAt(0).getBackground()` 就还是判定「这张卡没底」。
- * 真正兜住的是 [paintCard] 那张**不透明**的图：底下垫什么都露不出来。
+ * 所以圆角外面**到底露出什么，是桌面说了算**：[paintCard] 交出去的那张图角上是真透明，
+ * 桌面要垫底就随它垫，我们不再自己垫一张壁纸快照（那样会显出一圈直角，1.21.5 就被打过一次）。
  */
 @Composable
 internal fun WidgetCard(
